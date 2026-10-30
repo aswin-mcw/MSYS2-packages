@@ -43,7 +43,7 @@ build() {
       --disable-obsolete-api \
       --enable-hashes=all \
       --disable-symvers \
-      CFLAGS="-std=gnu17 -I/usr/aarch64-pc-cygwin/usr/include" \
+      CFLAGS="-I/usr/aarch64-pc-cygwin/usr/include" \
       LDFLAGS="${LDFLAGS} -L/usr/aarch64-pc-cygwin/usr/lib"
     make DESTDIR=${srcdir}/dest install
     return

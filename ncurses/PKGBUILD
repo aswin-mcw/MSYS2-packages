@@ -44,7 +44,6 @@ build() {
     # ncurses generates source with helper programs (make_keys/make_hash) and
     # runs tic/infocmp during install — those must be the BUILD (x64) compiler,
     # not the cross CC. --with-build-cc + BUILD_* flags direct that.
-    # GCC-15 is too new for some ncurses sources: force -std=gnu17.
     # The host is named aarch64-pc-msys, not -cygwin, as the native build
     # does (CHOST rewrite above): configure picks its DLL naming from the
     # host triplet, and only the msys model gives msys-ncursesw6.dll & co;
@@ -59,7 +58,7 @@ build() {
       --with-strip-program=aarch64-pc-cygwin-strip
       --without-tests
     )
-    export CFLAGS="-std=gnu17 -D_GNU_SOURCE"
+    export CFLAGS="-D_GNU_SOURCE"
     export BUILD_CC=gcc
     export AR=aarch64-pc-cygwin-ar RANLIB=aarch64-pc-cygwin-ranlib
   fi

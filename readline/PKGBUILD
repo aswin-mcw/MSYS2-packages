@@ -71,8 +71,7 @@ build() {
   local _xcflags=""
   if [[ ${CARCH} == aarch64 || -n ${MSYS2_ARM64_CROSS:-} ]]; then
     _host=aarch64-pc-cygwin
-    # GCC-15 is too new for readline's sources; -std=gnu89 per ARM bring-up.
-    _xcflags=" -std=gnu89 -I/usr/aarch64-pc-cygwin/usr/include/ncursesw"
+    _xcflags=" -I/usr/aarch64-pc-cygwin/usr/include/ncursesw"
     CFLAGS+="${_xcflags}"
     LDFLAGS+=" -L/usr/aarch64-pc-cygwin/usr/lib"
   fi

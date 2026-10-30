@@ -84,7 +84,6 @@ build() {
     # Cross-build for aarch64-pc-cygwin.
     # Uses the seed readline/ncurses/libintl/libiconv staged under the toolchain
     # sysroot at /usr/aarch64-pc-cygwin/usr.
-    #   - GCC-15 too new for bash sources: -std=gnu89 (build + target).
     #   - bash_cv_* : cross defaults for these AC_TRY_RUN probes are wrong.
     #     bash_cv_getcwd_malloc in particular: when cross-compiling configure
     #     defaults it to no, so bash builds lib/sh/getcwd.c instead of using
@@ -93,7 +92,7 @@ build() {
     #     pwd -W failed for every path on /c -- and git-filter-branch, which
     #     builds its temp dir from pwd, died on every run.
     #   - CFLAGS_FOR_BUILD -fcommon: build-host helpers (mkbuiltins etc.) need it
-    #     under GCC-15's default -fno-common.
+    #     under GCC's default -fno-common (GCC 10 and later).
     ./configure --build=${CHOST} \
       --host=aarch64-pc-cygwin \
       --prefix=/usr \
@@ -111,8 +110,8 @@ build() {
       bash_cv_wexitstatus_offset=8 \
       bash_cv_termcap_lib=libncurses \
       bash_cv_getcwd_malloc=yes \
-      CFLAGS="-O1 -std=gnu89 -DHEREDOC_PIPESIZE=65536 -I/usr/aarch64-pc-cygwin/usr/include -I/usr/aarch64-pc-cygwin/usr/include/ncurses" \
-      CFLAGS_FOR_BUILD="-fcommon -std=gnu89" \
+      CFLAGS="-O1 -DHEREDOC_PIPESIZE=65536 -I/usr/aarch64-pc-cygwin/usr/include -I/usr/aarch64-pc-cygwin/usr/include/ncurses" \
+      CFLAGS_FOR_BUILD="-fcommon" \
       LDFLAGS="${LDFLAGS} -L/usr/aarch64-pc-cygwin/usr/lib"
 
     expr ${pkgrel} > .build || :
@@ -132,7 +131,7 @@ build() {
          HISTORY_LDFLAGS= \
          READLINE_LDFLAGS= \
          CC_FOR_BUILD="${CC:-aarch64-pc-cygwin-gcc}" \
-         CFLAGS_FOR_BUILD="-O1 -std=gnu89 -I/usr/aarch64-pc-cygwin/usr/include" \
+         CFLAGS_FOR_BUILD="-O1 -I/usr/aarch64-pc-cygwin/usr/include" \
          LDFLAGS_FOR_BUILD="-L/usr/aarch64-pc-cygwin/usr/lib -Wl,--disable-high-entropy-va" \
          recho.exe zecho.exe printenv.exe xcase.exe
 
