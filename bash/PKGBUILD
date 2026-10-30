@@ -6,7 +6,7 @@ pkgname=('bash' 'bash-devel')
 _basever=5.3
 _patchlevel=20
 pkgver=${_basever}.${_patchlevel}
-pkgrel=2
+pkgrel=3
 pkgdesc="The GNU Bourne Again shell"
 arch=('i686' 'x86_64')
 license=('spdx:GPL-3.0-or-later')
@@ -136,7 +136,7 @@ sha256sums=('0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba'
             'd46e6b06167af61cc8639236948daf6fd57db418893330bef728efd4acc40430'
             '16584e119db9418030912171f89aecae319858ecd357d3e56c95eba83667dae7'
             '696e38540a9abfbf217d6dd17b2c6ffe274b9383815c5db76ce118fdddabd777'
-            '500c75c64593a70276585345a55c807226c0cc220d08b7cccece2ab005b3bcea'
+            '688619116d7d924cf1729e5cf557a3409876c88a8a1af1f7de9e375b00f86d46'
             'cbae1aa81d56eba4e916bdaf2b2983731d6e2537dd8d606a3b378e49bcb81e79'
             '1f608434364af86b9b45c8b0ea3fb3b165fb830d27697e6cdfc7ac17dee3287f'
             'SKIP'

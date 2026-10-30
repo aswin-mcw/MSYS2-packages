@@ -53,15 +53,32 @@ index b87c5d9..5e4e78e 100644
  	CASE_HELPOPT;
  	default:
  	  builtin_usage ();
-@@ -509,6 +515,19 @@ pwd_builtin (list)
+@@ -509,6 +515,36 @@ pwd_builtin (list)
      }
    list = loptend;
  
 +  if (verbatim_pwd == 2) {
-+    buffer = xmalloc (PATH_MAX);
-+    wbuffer = xmalloc (PATH_MAX);
++    buffer = xmalloc (PATH_MAX + 1);
++    wbuffer = xmalloc (PATH_MAX + 1);
++    memset (buffer, 0, PATH_MAX + 1);
++    memset (wbuffer, 0, PATH_MAX + 1);
 +    directory = getcwd (buffer, PATH_MAX);
-+    cygwin_conv_path (CCP_POSIX_TO_WIN_A|CCP_ABSOLUTE, buffer, wbuffer, PATH_MAX+1);
++    if (directory == 0)
++      {
++	free (buffer);
++	free (wbuffer);
++	builtin_error ("getcwd: cannot access parent directories");
++	return (EXECUTION_FAILURE);
++      }
++    if (cygwin_conv_path (CCP_POSIX_TO_WIN_A|CCP_ABSOLUTE, buffer, wbuffer,
++			  PATH_MAX) != 0)
++      {
++	free (buffer);
++	free (wbuffer);
++	builtin_error ("pwd: cannot convert path");
++	return (EXECUTION_FAILURE);
++      }
++    wbuffer[PATH_MAX] = 0;
 +    {
 +      char *c = wbuffer;
 +      while (c = strchr (c, '\\'))
@@ -73,7 +90,7 @@ index b87c5d9..5e4e78e 100644
  #define tcwd the_current_working_directory
  
    directory = tcwd ? (verbatim_pwd ? sh_physpath (tcwd, 0) : tcwd)
-@@ -525,6 +544,7 @@ pwd_builtin (list)
+@@ -525,6 +561,7 @@ pwd_builtin (list)
      }
  
  #undef tcwd
