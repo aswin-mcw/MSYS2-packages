@@ -19,6 +19,7 @@ makedepends=(
   "isl-devel"
   "autotools"
   "gperf"
+  "flex"                            # gengtype-lex.cc: not in the git checkout
   "libzstd-devel"
   "cross-msysarm64-binutils"
   "cross-msysarm64-gcc-stage1"      # stage1 compiler
