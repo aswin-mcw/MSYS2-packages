@@ -1,0 +1,42 @@
+From 0d887260a61b4fbf75563a5d6692c5a24ab8ed3d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:13:26 +0530
+Subject: [PATCH 2/3] ARM64: record baseline tar timing on Windows ARM64
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ benchmarks/base_bench_win_arm.txt | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.txt
+
+diff --git a/benchmarks/base_bench_win_arm.txt b/benchmarks/base_bench_win_arm.txt
+new file mode 100644
+index 0000000..4b18ea2
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.txt
+@@ -0,0 +1,22 @@
++GNU tar 1.35 - Windows ARM64 (aarch64-pc-cygwin / MSYS2) baseline timing
++Date (UTC): 2026-11-22T19:41:58Z  Commit: b1377ab (branch arm64-port)
++Host: Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU 26100 (CPU name, OS build); host arch ARM64. Other eval workloads were running concurrently -> numbers are indicative only.
++ARM64 tar: build-arm64/src/tar.exe (AA64), gzip = ARM64 MSYS2 userland gzip (/usr/aarch64-pc-cygwin/usr/bin/gzip)
++x64 tar:   C:/msys64/usr/bin/tar.exe 1.35 + x64 gzip, run under x64 emulation (Prism)
++Data: 2000 files (1000 x 100 KiB /dev/urandom, 1000 x 100 KiB text), 40 dirs, 196 MiB; tar 205854720 B, tgz 134294027 B
++Commands (each 3x, wall clock): tar -cf a.tar tree; tar -xf a.tar -C out; tar -czf a.tar.gz tree; tar -xzf a.tar.gz -C out
++Scripts: C:/wos-eval/work/tar-scratch/bench/{mktree.sh,bench.sh}
++
++# arm64: uname -m=aarch64 tar=/c/wos-eval/work/tar/build-arm64/src/tar gzip=/usr/aarch64-pc-cygwin/usr/bin/gzip
++arm64 run1 create_plain=0.44s extract_plain=0.64s create_gzip=9.70s extract_gzip=1.13s tar_bytes=205854720 tgz_bytes=134294027
++arm64 run2 create_plain=0.45s extract_plain=0.64s create_gzip=9.95s extract_gzip=1.18s tar_bytes=205854720 tgz_bytes=134294027
++arm64 run3 create_plain=0.43s extract_plain=0.61s create_gzip=9.94s extract_gzip=1.28s tar_bytes=205854720 tgz_bytes=134294027
++arm64 verify: extracted tree identical
++# x64-emulated: uname -m=x86_64 tar=/usr/bin/tar gzip=/usr/bin/gzip
++x64-emulated run1 create_plain=0.43s extract_plain=0.68s create_gzip=6.49s extract_gzip=0.94s tar_bytes=205854720 tgz_bytes=134294027
++x64-emulated run2 create_plain=0.45s extract_plain=0.68s create_gzip=6.21s extract_gzip=0.90s tar_bytes=205854720 tgz_bytes=134294027
++x64-emulated run3 create_plain=0.51s extract_plain=0.70s create_gzip=6.34s extract_gzip=1.06s tar_bytes=205854720 tgz_bytes=134294027
++x64-emulated verify: extracted tree identical
++
++gzip alone on the 196 MiB tar: arm64 compress=9.94s decompress=1.03s; x64-emulated compress=6.17s decompress=0.73s
++-> plain tar create/extract is at parity (~0.44s / ~0.63s ARM64 vs ~0.46s / ~0.69s x64); the gzip gap is entirely in the external ARM64 gzip binary, not tar.
+-- 
+2.56.1
+

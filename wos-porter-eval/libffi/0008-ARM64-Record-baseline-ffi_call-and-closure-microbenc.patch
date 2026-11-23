@@ -1,0 +1,225 @@
+From 007b0e31605485fe1e0f05f27d3c6eef482d3d4d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:44:38 +0530
+Subject: [PATCH 08/12] ARM64: Record baseline ffi_call and closure
+ microbenchmark results
+
+---
+ benchmarks/base_bench_win_arm.json      | 165 ++++++++++++++++++++++++
+ benchmarks/base_bench_win_arm.meta.json |  30 +++++
+ 2 files changed, 195 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.json
+ create mode 100644 benchmarks/base_bench_win_arm.meta.json
+
+diff --git a/benchmarks/base_bench_win_arm.json b/benchmarks/base_bench_win_arm.json
+new file mode 100644
+index 0000000..09c4350
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.json
+@@ -0,0 +1,165 @@
++{
++  "benchmark": "libffi-microbench",
++  "unit": "ns/call",
++  "primary_variant": "dll-arm64 (build-arm64/.libs/libffi-8.dll)",
++  "runs": [
++    {
++      "benchmark": "libffi-microbench",
++      "variant": "dll-arm64 (build-arm64/.libs/libffi-8.dll)",
++      "unit": "ns/call",
++      "results": [
++        {
++          "name": "direct_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 0.885,
++          "ns_per_call_min": 0.882,
++          "ns_per_call_max": 0.904
++        },
++        {
++          "name": "ffi_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 10.05,
++          "ns_per_call_min": 10.025,
++          "ns_per_call_max": 10.077
++        },
++        {
++          "name": "ffi_call_double_dsum4",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 21.307,
++          "ns_per_call_min": 20.796,
++          "ns_per_call_max": 21.361
++        },
++        {
++          "name": "ffi_call_mixed8",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 24.331,
++          "ns_per_call_min": 23.993,
++          "ns_per_call_max": 26.393
++        },
++        {
++          "name": "ffi_call_struct24_byval",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 14.014,
++          "ns_per_call_min": 13.849,
++          "ns_per_call_max": 14.433
++        },
++        {
++          "name": "closure_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 7.72,
++          "ns_per_call_min": 7.605,
++          "ns_per_call_max": 7.8
++        },
++        {
++          "name": "closure_call_double_dsum4",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 19.391,
++          "ns_per_call_min": 19.047,
++          "ns_per_call_max": 20.629
++        },
++        {
++          "name": "ffi_prep_cif_2args",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 10.317,
++          "ns_per_call_min": 10.204,
++          "ns_per_call_max": 10.458
++        },
++        {
++          "name": "ffi_closure_alloc_free",
++          "iterations": 500000,
++          "repetitions": 7,
++          "ns_per_call_median": 65.904,
++          "ns_per_call_min": 65.583,
++          "ns_per_call_max": 79.664
++        }
++      ]
++    },
++    {
++      "benchmark": "libffi-microbench",
++      "variant": "static-arm64-release (Ffi_staticLib_arm64.lib)",
++      "unit": "ns/call",
++      "results": [
++        {
++          "name": "direct_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 0.882,
++          "ns_per_call_min": 0.879,
++          "ns_per_call_max": 0.893
++        },
++        {
++          "name": "ffi_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 9.914,
++          "ns_per_call_min": 9.714,
++          "ns_per_call_max": 13.952
++        },
++        {
++          "name": "ffi_call_double_dsum4",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 20.268,
++          "ns_per_call_min": 20.101,
++          "ns_per_call_max": 21.878
++        },
++        {
++          "name": "ffi_call_mixed8",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 24.831,
++          "ns_per_call_min": 24.075,
++          "ns_per_call_max": 26.517
++        },
++        {
++          "name": "ffi_call_struct24_byval",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 13.894,
++          "ns_per_call_min": 13.594,
++          "ns_per_call_max": 15.213
++        },
++        {
++          "name": "closure_call_int_add2",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 7.665,
++          "ns_per_call_min": 7.628,
++          "ns_per_call_max": 7.7
++        },
++        {
++          "name": "closure_call_double_dsum4",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 18.547,
++          "ns_per_call_min": 18.271,
++          "ns_per_call_max": 19.436
++        },
++        {
++          "name": "ffi_prep_cif_2args",
++          "iterations": 5000000,
++          "repetitions": 7,
++          "ns_per_call_median": 10.083,
++          "ns_per_call_min": 10.025,
++          "ns_per_call_max": 10.239
++        },
++        {
++          "name": "ffi_closure_alloc_free",
++          "iterations": 500000,
++          "repetitions": 7,
++          "ns_per_call_median": 64.517,
++          "ns_per_call_min": 64.427,
++          "ns_per_call_max": 68.368
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+diff --git a/benchmarks/base_bench_win_arm.meta.json b/benchmarks/base_bench_win_arm.meta.json
+new file mode 100644
+index 0000000..e2afc58
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.meta.json
+@@ -0,0 +1,30 @@
++{
++  "cpu": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
++  "host_arch": "ARM64",
++  "os_build": "26100",
++  "commit": "8265de291ad6e8aff0e7b4805328d4805a6371de",
++  "branch": "arm64-port",
++  "timestamp_utc": "2026-11-22T20:14:37Z",
++  "build_config": {
++    "library": [
++      "autotools+msvcc.sh -marm64 --host=aarch64-w64-mingw32 (libffi-8.dll, MSVC default opt)",
++      "msvc_build/aarch64 MSBuild Release|ARM64 (Ffi_staticLib_arm64.lib, /O2 /GL /MD)"
++    ],
++    "benchmark_exe": "cl -nologo -W3 -MD -O2, ARM64 (AA64 verified with dumpbin)"
++  },
++  "toolchain": {
++    "cl": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\HostARM64\\ARM64\\cl.exe",
++    "cl_version": "19.51.36248 for ARM64",
++    "msvc_toolset": "14.51.36231"
++  },
++  "source": "scratch microbenchmark (libffi ships no benchmarks): C:\\wos-eval\\work\\libffi-scratch\\tests\\bench\\ffibench.c",
++  "commands": [
++    "C:\\wos-eval\\work\\libffi-scratch\\tests\\bench\\build.cmd",
++    "python -I C:\\wos-eval\\work\\libffi-scratch\\tests\\bench\\runbench.py  (runs: ffibench_dll.exe <label>; ffibench_static.exe <label>, PATH += build-arm64\\.libs)"
++  ],
++  "original_files": [
++    "C:\\wos-eval\\work\\libffi-scratch\\tests\\bench\\ffibench_dll.json",
++    "C:\\wos-eval\\work\\libffi-scratch\\tests\\bench\\ffibench_static.json"
++  ],
++  "method": "QueryPerformanceCounter; 1 warm-up pass (n/10) then 7 timed repetitions; median/min/max ns per call; 5,000,000 iterations (500,000 for closure alloc/free)"
++}
+\ No newline at end of file
+-- 
+2.56.1
+

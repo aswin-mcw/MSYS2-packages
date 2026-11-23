@@ -1,0 +1,235 @@
+From 84c1485415beca071c094156c6c5652765bac863 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:13:20 +0530
+Subject: [PATCH 2/3] ARM64: record baseline benchmark results
+
+Five pure-shell workloads (arithmetic loop, string building, case
+matching, function calls, 500 $(:) subshells), median of 5 runs each
+for the native ARM64 build and the x64 build under emulation on the
+same Snapdragon X Elite host. Scripts and the runner are kept in
+benchmarks/scripts so the numbers can be reproduced.
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ benchmarks/base_bench_win_arm.meta.json | 49 +++++++++++++++++++++++++
+ benchmarks/base_bench_win_arm.txt       | 39 ++++++++++++++++++++
+ benchmarks/scripts/arith_loop.sh        |  4 ++
+ benchmarks/scripts/case_match.sh        | 11 ++++++
+ benchmarks/scripts/fork_subshell.sh     |  4 ++
+ benchmarks/scripts/func_call.sh         |  5 +++
+ benchmarks/scripts/run_bench.ps1        | 31 ++++++++++++++++
+ benchmarks/scripts/string_build.sh      | 10 +++++
+ 8 files changed, 153 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.meta.json
+ create mode 100644 benchmarks/base_bench_win_arm.txt
+ create mode 100644 benchmarks/scripts/arith_loop.sh
+ create mode 100644 benchmarks/scripts/case_match.sh
+ create mode 100644 benchmarks/scripts/fork_subshell.sh
+ create mode 100644 benchmarks/scripts/func_call.sh
+ create mode 100644 benchmarks/scripts/run_bench.ps1
+ create mode 100644 benchmarks/scripts/string_build.sh
+
+diff --git a/benchmarks/base_bench_win_arm.meta.json b/benchmarks/base_bench_win_arm.meta.json
+new file mode 100644
+index 0000000..bc91d72
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.meta.json
+@@ -0,0 +1,49 @@
++{
++  "project": "dash 0.5.13.5 (MSYS2 recipe)",
++  "commit": "047daafe6cfbc867609acddfecaba139e381458d",
++  "branch": "arm64-port",
++  "timestampUtc": "2026-11-21T19:42:20Z",
++  "host": {
++    "cpu": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
++    "arch": "ARM64",
++    "os": "Microsoft Windows 11 Enterprise",
++    "osBuild": "26100"
++  },
++  "builds": {
++    "arm64": {
++      "binary": "build-arm64/src/dash.exe",
++      "machine": "AA64",
++      "target": "aarch64-pc-cygwin",
++      "compiler": "aarch64-pc-cygwin-gcc 17.0.0 20260828 (experimental), --with-arch=armv8-a --with-tune=cortex-a53",
++      "configure": "../configure --prefix=/usr --exec-prefix= --bindir=/usr/bin --mandir=/usr/share/man --build=x86_64-pc-msys --host=aarch64-pc-cygwin CC_FOR_BUILD=gcc CFLAGS='-O2 -static-libgcc'",
++      "cflags": "-O2 -static-libgcc",
++      "runtime": "C:/gfw-native/native/usr/bin/msys-2.0.dll (MSYS 3.6.10-45-gda84778cbc92, aarch64)",
++      "execution": "native"
++    },
++    "x64": {
++      "binary": "build-x64/src/dash.exe",
++      "machine": "8664",
++      "target": "x86_64-pc-msys",
++      "compiler": "gcc 16.2.0",
++      "configure": "../configure --prefix=/usr --exec-prefix= --bindir=/usr/bin --mandir=/usr/share/man CC=gcc CFLAGS='-O2 -static-libgcc'",
++      "cflags": "-O2 -static-libgcc",
++      "runtime": "C:/msys64/usr/bin/msys-2.0.dll (MSYS 3.6.12-50c44b7c, x86_64)",
++      "execution": "emulated (Windows on ARM x64 emulation, same machine)"
++    }
++  },
++  "method": {
++    "runsPerArch": 5,
++    "statistic": "median wall time (System.Diagnostics.Stopwatch)",
++    "launcher": "powershell.exe; dash is the root Cygwin process; PATH = <arch usr/bin>;C:/Windows/System32;C:/Windows",
++    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks/scripts/run_bench.ps1 -Runs 5",
++    "scripts": ["scripts/arith_loop.sh", "scripts/string_build.sh", "scripts/case_match.sh", "scripts/func_call.sh", "scripts/fork_subshell.sh"],
++    "nativeOutput": "console only (runner prints medians; raw per-run CSV via -Out); captured into base_bench_win_arm.txt"
++  },
++  "resultsMs": {
++    "arith_loop":    {"arm64": 3474.3, "x64": 3156.7},
++    "string_build":  {"arm64": 195.7,  "x64": 175.5},
++    "case_match":    {"arm64": 536.3,  "x64": 445.2},
++    "func_call":     {"arm64": 835.3,  "x64": 838.9},
++    "fork_subshell": {"arm64": 3068.5, "x64": 6243.6}
++  }
++}
+diff --git a/benchmarks/base_bench_win_arm.txt b/benchmarks/base_bench_win_arm.txt
+new file mode 100644
+index 0000000..7136431
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.txt
+@@ -0,0 +1,39 @@
++dash 0.5.13.5 (MSYS2 recipe) - Windows on ARM baseline benchmarks
++================================================================
++Host     : Snapdragon(R) X Elite - X1E80100 (Qualcomm Oryon), Windows 11 Enterprise build 26100, native ARM64
++Commit   : 047daafe6cfbc867609acddfecaba139e381458d (branch arm64-port)
++Date     : 2026-11-21T19:42Z
++ARM64    : build-arm64/src/dash.exe, aarch64-pc-cygwin-gcc 17.0.0 20260828, -O2 -static-libgcc,
++           runtime C:\gfw-native\native\usr\bin\msys-2.0.dll (3.6.10, AA64), native execution
++x64      : build-x64/src/dash.exe, x86_64-pc-msys gcc 16.2.0, -O2 -static-libgcc,
++           runtime C:\msys64\usr\bin\msys-2.0.dll (3.6.12, x64), emulated by Windows (Prism) on the same machine
++Method   : each dash launched directly from powershell.exe (root Cygwin process, PATH = its own usr\bin first),
++           wall time by System.Diagnostics.Stopwatch, 5 runs per arch, median reported.
++Reproduce: powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\scripts\run_bench.ps1 -Runs 5
++
++Benchmark       Workload                                   ARM64 native   x64 emulated   ARM64/x64
++--------------  -----------------------------------------  -------------  -------------  ---------
++arith_loop      1e6-iteration $(( )) while loop                3474.3 ms      3156.7 ms      1.10
++string_build    200 x (build 100-item string, trim by ${#})     195.7 ms       175.5 ms      1.12
++case_match      30000 x 10-word case/glob classification        536.3 ms       445.2 ms      1.20
++func_call       200000 shell function calls                     835.3 ms       838.9 ms      1.00
++fork_subshell   500 x $(:) command-substitution subshells      3068.5 ms      6243.6 ms      0.49
++
++(ARM64/x64 < 1.00 means native ARM64 is faster.)
++
++Raw runs (ms):
++arith_loop     arm64 3520.3 3469.2 3527.9 3474.3 3434.7 | x64 3156.7 3153.2 3217.4 3228.3 3132.8
++string_build   arm64  199.2  195.7  172.6  194.8  196.3 | x64  177.6  175.5  175.7  173.3  172.9
++case_match     arm64  560.9  533.1  536.3  550.6  532.4 | x64  478.2  442.0  469.2  443.5  445.2
++func_call      arm64  849.5  865.0  824.4  824.6  835.3 | x64  856.9  839.5  838.9  838.9  836.2
++fork_subshell  arm64 3116.8 2985.7 3095.5 3057.4 3068.5 | x64 6447.3 6303.7 6243.6 6074.3 6216.4
++
++All runs exited 0 and produced identical results on both arches
++(42 / 98000 / "90000 30000 30000 30000" / 840003 / 500).
++
++Notes:
++- Pure-interpreter loops are 0-20% slower native than emulated x64. Both are -O2, but the
++  aarch64 cross GCC is an experimental 17.0 snapshot configured --with-tune=cortex-a53, and the
++  two msys-2.0.dll runtimes differ (3.6.10 ARM64 vs 3.6.12 x64). Recorded as-is, not tuned.
++- fork_subshell (fork()+exec-free child per iteration, dominated by the Cygwin fork emulation in
++  msys-2.0.dll) is ~2x faster native.
+diff --git a/benchmarks/scripts/arith_loop.sh b/benchmarks/scripts/arith_loop.sh
+new file mode 100644
+index 0000000..d1e718c
+--- /dev/null
++++ b/benchmarks/scripts/arith_loop.sh
+@@ -0,0 +1,4 @@
++# 1e6-iteration arithmetic while loop
++i=0; s=0
++while [ $i -lt 1000000 ]; do s=$(( (s + i * 7) % 1000003 )); i=$((i + 1)); done
++echo "$s"
+diff --git a/benchmarks/scripts/case_match.sh b/benchmarks/scripts/case_match.sh
+new file mode 100644
+index 0000000..788776a
+--- /dev/null
++++ b/benchmarks/scripts/case_match.sh
+@@ -0,0 +1,11 @@
++# case/glob pattern matching loop
++i=0; a=0; b=0; c=0; d=0
++set -- apple banana cherry date elder fig grape 12345 x-y-z UPPER
++while [ $i -lt 30000 ]; do
++  for w; do
++    case $w in
++      [a-c]*) a=$((a + 1));; *[0-9]*) b=$((b + 1));; *-*-*) c=$((c + 1));; [[:upper:]]*) d=$((d + 1));; *) :;;
++    esac
++  done; i=$((i + 1))
++done
++echo "$a $b $c $d"
+diff --git a/benchmarks/scripts/fork_subshell.sh b/benchmarks/scripts/fork_subshell.sh
+new file mode 100644
+index 0000000..30716c5
+--- /dev/null
++++ b/benchmarks/scripts/fork_subshell.sh
+@@ -0,0 +1,4 @@
++# fork-heavy loop: 500 $(:) command-substitution subshells
++i=0
++while [ $i -lt 500 ]; do x=$(:); i=$((i + 1)); done
++echo "$i"
+diff --git a/benchmarks/scripts/func_call.sh b/benchmarks/scripts/func_call.sh
+new file mode 100644
+index 0000000..2892926
+--- /dev/null
++++ b/benchmarks/scripts/func_call.sh
+@@ -0,0 +1,5 @@
++# shell function call loop
++add() { r=$(( $1 + $2 )); }
++i=0; acc=0
++while [ $i -lt 200000 ]; do add $acc $i; acc=$((r % 1000003)); i=$((i + 1)); done
++echo "$acc"
+diff --git a/benchmarks/scripts/run_bench.ps1 b/benchmarks/scripts/run_bench.ps1
+new file mode 100644
+index 0000000..d9f21f1
+--- /dev/null
++++ b/benchmarks/scripts/run_bench.ps1
+@@ -0,0 +1,31 @@
++# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File run_bench.ps1 [-Runs 5] [-Out results.csv]
++# Runs each benchmark script with the ARM64 and x64 dash (each as the root Cygwin process, launched from PowerShell).
++param([int]$Runs = 5, [string]$Out = "$PSScriptRoot\bench_raw.csv")
++$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
++$arches = [ordered]@{
++  arm64 = @{ dash = "$repo\build-arm64\src\dash.exe"; bin = 'C:\gfw-native\native\usr\bin' }
++  x64   = @{ dash = "$repo\build-x64\src\dash.exe";   bin = 'C:\msys64\usr\bin' }
++}
++$benches = 'arith_loop','string_build','case_match','func_call','fork_subshell'
++$rows = @()
++foreach ($b in $benches) {
++  $script = (Join-Path $PSScriptRoot "$b.sh").Replace('\','/')
++  foreach ($a in $arches.Keys) {
++    $env:PATH = "$($arches[$a].bin);C:\Windows\System32;C:\Windows"
++    for ($r = 1; $r -le $Runs; $r++) {
++      $sw = [Diagnostics.Stopwatch]::StartNew()
++      $res = & $arches[$a].dash $script
++      $sw.Stop()
++      $rows += [pscustomobject]@{ bench = $b; arch = $a; run = $r; ms = [math]::Round($sw.Elapsed.TotalMilliseconds, 1); rc = $LASTEXITCODE; result = "$res" }
++    }
++  }
++}
++$rows | Export-Csv -NoTypeInformation -Path $Out
++foreach ($b in $benches) {
++  $line = "{0,-14}" -f $b
++  foreach ($a in $arches.Keys) {
++    $v = @($rows | Where-Object { $_.bench -eq $b -and $_.arch -eq $a } | Sort-Object ms | ForEach-Object { $_.ms })
++    $line += " {0}={1}ms" -f $a, $v[[int][math]::Floor($v.Count / 2)]
++  }
++  $line
++}
+diff --git a/benchmarks/scripts/string_build.sh b/benchmarks/scripts/string_build.sh
+new file mode 100644
+index 0000000..a3912a9
+--- /dev/null
++++ b/benchmarks/scripts/string_build.sh
+@@ -0,0 +1,10 @@
++# string building and parameter-expansion trimming
++n=0; total=0
++while [ $n -lt 200 ]; do
++  s=""; i=0
++  while [ $i -lt 100 ]; do s="${s}x$i,"; i=$((i + 1)); done
++  t=$s; c=0
++  while [ -n "$t" ]; do t=${t#*,}; c=$((c + 1)); done
++  total=$((total + ${#s} + c)); n=$((n + 1))
++done
++echo "$total"
+-- 
+2.56.1
+

@@ -1,0 +1,61 @@
+From e18e5ff084b58f046b11c504434203c0d59285d3 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 00:57:40 +0530
+Subject: [PATCH 1/3] liblzma: Enable ARM64 CRC32 runtime detection on Cygwin
+
+Cygwin (and the MSYS2 runtime) doesn't define _WIN32, so the ARM64
+CRC32 code was never selected for aarch64-pc-cygwin even though
+IsProcessorFeaturePresent() is available from kernel32. Include
+<windows.h> and use PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE for
+runtime detection when __CYGWIN__ is defined.
+
+Signed-off-by: aswin-mcw
+---
+ src/liblzma/check/crc32_arm64.h | 7 ++++++-
+ src/liblzma/check/crc_common.h  | 5 ++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/liblzma/check/crc32_arm64.h b/src/liblzma/check/crc32_arm64.h
+index 4a0818f..cb87a71 100644
+--- a/src/liblzma/check/crc32_arm64.h
++++ b/src/liblzma/check/crc32_arm64.h
+@@ -28,6 +28,10 @@
+ #		include <sys/auxv.h>
+ #	elif defined(_WIN32)
+ #		include <processthreadsapi.h>
++#	elif defined(__CYGWIN__)
++		// Cygwin doesn't define _WIN32 but IsProcessorFeaturePresent()
++		// is available via <windows.h>.
++#		include <windows.h>
+ #	elif defined(__APPLE__) && defined(HAVE_SYSCTLBYNAME)
+ #		include <sys/sysctl.h>
+ #	endif
+@@ -119,7 +123,8 @@ is_arch_extension_supported(void)
+ 
+ 	return (feature_flags & HWCAP_CRC32) != 0;
+ 
+-#elif defined(_WIN32)
++#elif defined(_WIN32) || defined(__CYGWIN__)
++	// Cygwin doesn't define _WIN32 but can use the kernel32 API.
+ 	return IsProcessorFeaturePresent(
+ 			PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE);
+ 
+diff --git a/src/liblzma/check/crc_common.h b/src/liblzma/check/crc_common.h
+index 4897dfe..2b85fee 100644
+--- a/src/liblzma/check/crc_common.h
++++ b/src/liblzma/check/crc_common.h
+@@ -89,7 +89,10 @@ extern const uint64_t lzma_crc64_table[4][256];
+ // ARM64
+ //
+ // Keep this in sync with changes to crc32_arm64.h
+-#if defined(_WIN32) \
++//
++// Cygwin (and MSYS2) doesn't define _WIN32 but it can still call
++// IsProcessorFeaturePresent() from kernel32.
++#if defined(_WIN32) || defined(__CYGWIN__) \
+ 		|| (defined(HAVE_GETAUXVAL) && defined(HAVE_HWCAP_CRC32)) \
+ 		|| defined(HAVE_ELF_AUX_INFO) \
+ 		|| (defined(__APPLE__) && defined(HAVE_SYSCTLBYNAME))
+-- 
+2.56.1
+

@@ -1,0 +1,33 @@
+From 32d1d61c7bc347cfdd7afbfd7b03c9a6c3586774 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:11 +0530
+Subject: [PATCH 01/12] ARM64: Fix Q3/Q4 HVA load offsets in win64_armasm.S
+
+The third (and fourth) 128-bit HFA/HVA element lives at offset 32, not
+16, so extend_hfa_type loaded the wrong lanes for Q3 and Q4 aggregates.
+---
+ src/aarch64/win64_armasm.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/aarch64/win64_armasm.S b/src/aarch64/win64_armasm.S
+index 7fc185b..e77bc26 100644
+--- a/src/aarch64/win64_armasm.S
++++ b/src/aarch64/win64_armasm.S
+@@ -393,12 +393,12 @@ extend_hfa_type_jump_base
+ 	nop
+ 
+ 	ldp	q16, q17, [x1]		/* Q4 */
+-	ldp	q18, q19, [x1, #16]
++	ldp	q18, q19, [x1, #32]
+ 	b	extend_hfa_type_store_4
+ 	nop
+ 
+ 	ldp	q16, q17, [x1]		/* Q3 */
+-	ldr	q18, [x1, #16]
++	ldr	q18, [x1, #32]
+ 	b	extend_hfa_type_store_3
+ 	nop
+ 
+-- 
+2.56.1
+

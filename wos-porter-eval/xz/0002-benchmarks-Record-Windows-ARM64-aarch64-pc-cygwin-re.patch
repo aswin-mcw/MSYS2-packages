@@ -1,0 +1,85 @@
+From 6eb03d8a96382cae64a17a9429ca12494f60a11d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:07:55 +0530
+Subject: [PATCH 2/3] benchmarks: Record Windows ARM64 (aarch64-pc-cygwin)
+ results
+
+Signed-off-by: aswin-mcw
+---
+ benchmarks/base_bench_win_arm.meta.json | 12 +++++++
+ benchmarks/base_bench_win_arm.txt       | 44 +++++++++++++++++++++++++
+ 2 files changed, 56 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.meta.json
+ create mode 100644 benchmarks/base_bench_win_arm.txt
+
+diff --git a/benchmarks/base_bench_win_arm.meta.json b/benchmarks/base_bench_win_arm.meta.json
+new file mode 100644
+index 0000000..ff332ff
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.meta.json
+@@ -0,0 +1,12 @@
++{
++  "project": "xz 5.8.4 (MSYS2 usr/bin layer of Git for Windows)",
++  "target": "aarch64-pc-cygwin",
++  "compiler": "aarch64-pc-cygwin-gcc 17.0.0 20260828, -O2",
++  "host": "Windows 11 ARM64 10.0.26100, Qualcomm Snapdragon",
++  "executed": "native ARM64",
++  "date": "2026-11-23",
++  "noise": "concurrent GNU tar test suite (-j8) running on host",
++  "branch_commit_measured": "e18e5ff",
++  "scripts": "bench.sh, bench2.sh, crcbench.c in C:/wos-eval/work/xz-scratch (not in repo)",
++  "format": "txt"
++}
+diff --git a/benchmarks/base_bench_win_arm.txt b/benchmarks/base_bench_win_arm.txt
+new file mode 100644
+index 0000000..610ebf0
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.txt
+@@ -0,0 +1,44 @@
++# xz 5.8.4 on Windows ARM64, aarch64-pc-cygwin (MSYS2 runtime) build
++# Host: Qualcomm Snapdragon (ARMv8, Family 8 Model 1), Windows 11 10.0.26100, native ARM64
++# Date: 2026-11-23. Another job (a GNU tar test suite, -j8) was running on the
++# host at the same time, so end-to-end timings are noisy; the CRC32
++# microbenchmark (best of N) is the most stable number.
++#
++# Variants (same machine, same session):
++#   base = pre-port package binaries from the aarch64 sysroot
++#          (C:/msys64/usr/aarch64-pc-cygwin/usr/bin; cross conf CFLAGS="-pipe", i.e. -O0)
++#   ctl  = unpatched main branch, -O2 (configure default), msys-lzma-5.dll only;
++#          isolates the effect of the arm64-port CRC32 change
++#   new  = arm64-port branch, -O2, build-arm64 (hardware CRC32 via runtime detection)
++#
++# Input: deterministic 64 MiB (48 MiB repo text repeated + 16 MiB Python random.Random(42))
++#   sha256 ff4355579cc00446c7f4e9485db502beff07e1283ec7b52a8abe9ab9b019a751
++#
++## 1. lzma_crc32() microbenchmark, 256 MiB buffer, best of 5-7 runs
++# variant  run                      MiB/s
++base       crc32-256MiB             615.1   (run 2: 675.9)
++ctl        crc32-256MiB             1681.0
++new        crc32-256MiB             6254.5  (run 1: 7784.8)
++# crc32 value identical for all variants: 3bcd384b
++# new vs ctl: 3.7x (hardware CRC32 instructions vs generic slice-by-8, both -O2)
++#
++## 2. End-to-end xz, 64 MiB input, 5 interleaved runs, wall time in ms (median / min)
++# op        variant  median  min
++c6          base     34783   30279    # xz -T1 -6 -c
++c6          new      17992   14549
++d6          base     336     317      # xz -dc (of the -6 output)
++d6          new      252     197
++c0crc32     base     10140   8421     # xz -T1 -0 --check=crc32 -c
++c0crc32     new      4163    3487
++t0crc32     base     1972    1537     # xz -t (on the -0 --check=crc32 file)
++t0crc32     new      672     572
++# base->new end-to-end gains are dominated by -O0 -> -O2, not by the CRC change.
++#
++## 3. CRC change in isolation (ctl vs new, same xz.exe, both -O2), ms median / min
++c0crc32     ctl      5581    3794
++c0crc32     new      6065    4053
++t0crc32     ctl      841     639
++t0crc32     new      890     623
++# Within run-to-run noise (CRC32 is a small share of these ops); the expected
++# saving is ~28 ms of CRC time per 64 MiB checked.
++# Round-trip check: base decodes new's .xz and new decodes base's .xz -> identical to input.
+-- 
+2.56.1
+

@@ -1,0 +1,34 @@
+From 100ca63a92f73741d2c11e726c811a84e5b1bfc8 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:59:40 +0530
+Subject: [PATCH 2/4] ARM64: let config.guess recognise aarch64 Cygwin/MSYS
+ hosts
+
+On a native Windows ARM64 Cygwin host, uname -s is CYGWIN_NT-*-ARM64 and
+uname -m is aarch64.  This 2021 config.guess only knows the i686 and
+x86_64 Cygwin hosts, so configure without --build failed with "unable to
+guess system type".  Add the case that upstream config.guess has had
+since 2023.
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ config/config.guess | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/config/config.guess b/config/config.guess
+index e81d3ae..6e29f97 100644
+--- a/config/config.guess
++++ b/config/config.guess
+@@ -947,6 +947,9 @@ EOF
+     amd64:CYGWIN*:*:* | x86_64:CYGWIN*:*:*)
+ 	GUESS=x86_64-pc-cygwin
+ 	;;
++    aarch64:CYGWIN*:*:*)
++	GUESS=aarch64-pc-cygwin
++	;;
+     prep*:SunOS:5.*:*)
+ 	SUN_REL=`echo "$UNAME_RELEASE" | sed -e 's/[^.]*//'`
+ 	GUESS=powerpcle-unknown-solaris2$SUN_REL
+-- 
+2.56.1
+

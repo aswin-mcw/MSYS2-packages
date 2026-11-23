@@ -1,0 +1,30 @@
+From 33ab36ebb0edaabb62efa1826fcf70b50258d480 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:53 +0530
+Subject: [PATCH 05/12] ARM64: Fix armasm64 include argument quoting in
+ Ffi_staticLib.vcxproj
+
+/I"src\" ends in an escaped quote, so the rest of the command line,
+including -o, was swallowed into one argument and armasm64 wrote
+win64_armasm.obj into the project directory instead of $(IntDir).  The
+object then never reached the static library (MSB8065).
+---
+ msvc_build/aarch64/Ffi_staticLib.vcxproj | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/msvc_build/aarch64/Ffi_staticLib.vcxproj b/msvc_build/aarch64/Ffi_staticLib.vcxproj
+index 3cb777b..af97f48 100644
+--- a/msvc_build/aarch64/Ffi_staticLib.vcxproj
++++ b/msvc_build/aarch64/Ffi_staticLib.vcxproj
+@@ -127,7 +127,7 @@
+       <!--ExcludedFromBuild Condition="'$(Platform)'!='ARM64'">true</ExcludedFromBuild -->
+       <Command>
+         cl /FA /EP /nologo /I"..\..\include" /I".\aarch64_include" /I"..\..\src\aarch64" "%(FullPath)" &gt; "$(IntDir)win64_armasm.i"
+-        armasm64 "$(IntDir)win64_armasm.i" /I"src\" /I"..\..\include" /I"..\..\src\aarch64" -o "$(IntDir)win64_armasm.obj"
++        armasm64 "$(IntDir)win64_armasm.i" /I"..\..\src" /I"..\..\include" /I"..\..\src\aarch64" -o "$(IntDir)win64_armasm.obj"
+       </Command>
+       <!-- ARM64 support: output must match the armasm64 -o path so the object is archived into the lib -->
+       <Message>Assembling %(Filename)%(Extension) with armasm64</Message>
+-- 
+2.56.1
+

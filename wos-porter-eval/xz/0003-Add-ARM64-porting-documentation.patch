@@ -1,0 +1,165 @@
+From 0dada9100e494ebb54937001c17de94e2374f09d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:09:20 +0530
+Subject: [PATCH 3/3] Add ARM64 porting documentation
+
+Signed-off-by: aswin-mcw
+---
+ ARM64-PORT.md | 145 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 145 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..ac68c32
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,145 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) support for xz 5.8.4 as shipped in the MSYS2
++`usr/bin` layer of Git for Windows, on branch `arm64-port`.
++
++The target is **aarch64-pc-cygwin**: binaries link against the ARM64
++MSYS2 runtime (`msys-2.0.dll`) and are named like the x86_64 MSYS2 package
++(`xz.exe`, `msys-lzma-5.dll`, ...). It is not an MSVC build. xz upstream does
++not ship an MSVC project, and the Git for Windows `usr/bin` layer is built
++against the MSYS2 runtime.
++
++## Summary of Changes
++### Build System
++- None. The checked-in autotools build already handles `--host=aarch64-pc-cygwin`:
++  - `build-aux/config.sub` accepts the triplet.
++  - MSYS2's libtool names the DLL `msys-lzma-5.dll`.
++  - The x86 asm (`COND_ASM_X86`) and CLMUL checks are disabled because of the host.
++  - The prefixed `objdump` and `windres` are picked up, so `.rc` resources are built for ARM64 and the unaligned-access probe answers `yes`.
++
++### Source Code
++- `src/liblzma/check/crc_common.h`: the ARM64 CRC32 runtime-detection selector now also accepts `__CYGWIN__` (commit `e18e5ff`).
++- `src/liblzma/check/crc32_arm64.h`: on `__CYGWIN__`, includes `<windows.h>` and detects the instructions with `IsProcessorFeaturePresent(PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE)` (commit `e18e5ff`).
++- Reason for both changes: Cygwin/MSYS2 GCC defines neither `_WIN32` nor `__ARM_FEATURE_CRC32`, and it has no `getauxval`. As a result `CRC_ARM64_RUNTIME_DETECTION` was never defined, and liblzma silently compiled out its ARM64 CRC32 code. It then used the generic table CRC, even though configure reported "ARM64 CRC32 instruction is usable... yes".
++
++### CI/CD
++- None. This checkout has no CI configuration.
++
++### New Files
++- `benchmarks/base_bench_win_arm.txt`, `benchmarks/base_bench_win_arm.meta.json`: ARM64 benchmark results.
++- `ARM64-PORT.md`: this document.
++
++## Build Steps (ARM64)
++Prerequisites:
++- MSYS2 with the aarch64-pc-cygwin cross toolchain (`aarch64-pc-cygwin-gcc` 17, binutils including `-objdump` and `-windres`).
++- The ARM64 sysroot `C:\msys64\usr\aarch64-pc-cygwin`, which must contain `msys-2.0.dll`, libintl and libiconv.
++- `crossarm64/config.site` from MSYS2-packages, so configure probes run natively.
++
++### Build
++```bash
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc 'cd /c/wos-eval/work/xz && mkdir -p build-arm64 && cd build-arm64 && export lt_cv_deplibs_check_method=pass_all CONFIG_SITE=/home/HCKTest/MSYS2-packages/crossarm64/config.site && MSYSTEM=CYGWIN ../configure --build=x86_64-pc-msys --host=aarch64-pc-cygwin --prefix=/usr --enable-shared --enable-static --without-libintl-prefix --without-libiconv-prefix CPPFLAGS=-I/usr/aarch64-pc-cygwin/usr/include LDFLAGS=-L/usr/aarch64-pc-cygwin/usr/lib'
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc 'cd /c/wos-eval/work/xz/build-arm64 && make -j8'
++```
++Build output: `build-arm64/src/liblzma/.libs/msys-lzma-5.dll`, `build-arm64/src/xz/.libs/xz.exe`, `build-arm64/src/xzdec/.libs/{xzdec,lzmadec}.exe`, `build-arm64/src/lzmainfo/.libs/lzmainfo.exe`.
++
++The build runs at the default `-O2`. GCC 17 hit no internal compiler errors. `config.h` has `HAVE_ARM64_CRC32 1` and `TUKLIB_FAST_UNALIGNED_ACCESS 1`. `aarch64-pc-cygwin-objdump -d msys-lzma-5.dll | grep -c 'crc32[bhwx]'` gives 8, and the DLL imports `IsProcessorFeaturePresent`.
++
++The MSYS2 recipe that builds this package (`MSYS2-packages/xz/PKGBUILD`) already has an aarch64 cross arm.
++
++### Run Tests
++The ARM64 runtime DLLs and the uninstalled liblzma must be on `PATH`. Without them every test exits 127, because the DLLs are not found.
++```bash
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc 'cd /c/wos-eval/work/xz/build-arm64 && export PATH="$PATH:/c/wos-eval/work/xz/build-arm64/src/liblzma/.libs:/usr/aarch64-pc-cygwin/usr/bin" && make check'
++```
++Expected: 22 passed, 0 failed (90 TAP subtests).
++
++### Run Benchmarks
++xz has no benchmark suite. The ad-hoc scripts live outside the repo in `C:\wos-eval\work\xz-scratch`:
++- `crcbench.c`: `lzma_crc32` over a 256 MiB buffer.
++- `bench.sh`: end-to-end runs, baseline package against this port.
++- `bench2.sh`: unpatched `-O2` control against this port.
++```bash
++cd /c/wos-eval/work/xz-scratch && ./bench.sh && ./bench2.sh
++PATH="$PATH:/c/msys64/usr/aarch64-pc-cygwin/usr/bin" ./new/crcbench.exe 7
++```
++Results are in `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native ARM64 (Qualcomm Snapdragon, Windows 11 26100). The test suite was driven by the x86_64 MSYS2 `make`, which spawned the ARM64 test programs.
++- **Executed**: Yes
++- **Passed**: 22     **Failed**: 0     **Skipped**: 0 (90 TAP subtests passed)
++
++| Test | Result |
++|---|---|
++| test_check (CRC32/CRC64/SHA-256 vectors, now using the hardware CRC32 path) | PASS |
++| test_hardware, test_stream_flags, test_filter_flags, test_filter_str, test_block_header, test_index, test_index_hash, test_bcj_exact_size, test_memlimit, test_lzip_decoder, test_alone_decoder, test_stream_buffer_encode, test_stream_buffer_decode, test_microlzma, test_vli | PASS |
++| test_files.sh, test_suffix.sh, test_scripts.sh | PASS |
++| test_compress_generated_abc / _random / _text | PASS |
++
++## Test Fixes Applied
++None. All tests passed without modification.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt` (committed on `arm64-port`)
++- **Metadata**: `benchmarks/base_bench_win_arm.meta.json`
++- **Format**: txt
++- **Executed on**: native ARM64 host. Another job's test suite was running at the same time, so the end-to-end numbers are noisy.
++
++| Measurement | Pre-port package (-O0) | Unpatched main, -O2 | arm64-port, -O2 |
++|---|---|---|---|
++| `lzma_crc32`, 256 MiB (MiB/s) | 615 | 1681 | 6255 to 7785 |
++| `xz -T1 -6`, 64 MiB (ms, median) | 34783 | n/a | 17992 |
++| `xz -dc`, 64 MiB (ms, median) | 336 | n/a | 252 |
++| `xz -T1 -0 --check=crc32`, 64 MiB (ms, median) | 10140 | 5581 | 6065 (within noise) |
++| `xz -t` on the crc32 file (ms, median) | 1972 | 841 | 890 (within noise) |
++
++Reading the table:
++- The CRC32 change on its own gives a 3.7x faster `lzma_crc32` than generic C at the same `-O2`.
++- The end-to-end gains over the shipped package come mostly from `-O2` against the cross conf's `-O0`, not from the CRC change.
++
++## NEON Optimizations
++Skipped. Phase 7 did not run because `WOS_SKIP_OPTIMIZE` was set. xz has no x86 SIMD translation units that need porting:
++- `crc_x86_clmul.h` and the `memcmplen.h`/`lz_decoder.h` SSE2 paths are guarded and fall back to portable C on aarch64.
++- CRC64 has no ARM64 implementation upstream.
++
++## ARM64 vs x64 Performance Comparison
++No x64 reference was supplied, so a differential comparison does not apply.
++
++## Architecture Verification
++All built binaries were verified with `dumpbin /HEADERS` (MSVC 14.51 HostARM64) as machine type `AA64` (ARM64). Result: 22/22.
++
++| Binary | Machine | Size (bytes) |
++|---|---|---|
++| `src/liblzma/.libs/msys-lzma-5.dll` | AA64 machine (ARM64) | 1169764 |
++| `src/xz/.libs/xz.exe` | AA64 machine (ARM64) | 370688 |
++| `src/xzdec/.libs/xzdec.exe` | AA64 machine (ARM64) | 58049 |
++| `src/xzdec/.libs/lzmadec.exe` | AA64 machine (ARM64) | 58047 |
++| `src/lzmainfo/.libs/lzmainfo.exe` | AA64 machine (ARM64) | 73726 |
++| `tests/.libs/*.exe` (17 test programs) | AA64 machine (ARM64) | 37642 to 349253 |
++
++Runtime dependencies in the sysroot are also ARM64: `msys-2.0.dll`, `msys-intl-8.dll` and `msys-iconv-2.dll` all show `AA64`.
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native (aarch64-pc-cygwin). ARM64EC is not needed.
++- **AppReady stages reached**: Assess done, Build done, Test done, Optimize skipped (by request).
++- **WoA Ecosystem Dashboard status**:
++
++| Dependency | Version | Dashboard status | Citation |
++|---|---|---|---|
++| msys-2.0 runtime | 3.6.x aarch64 | unknown (not listed); built in the MSYS2 aarch64 sysroot, AA64 | dumpbin above |
++| gettext / libintl | msys-intl-8 | unknown (not listed); AA64 in sysroot | dumpbin above |
++| libiconv | msys-iconv-2 | unknown (not listed); AA64 in sysroot | dumpbin above |
++
++- **Emulation vs native**: xz, xzdec, lzmadec, lzmainfo and liblzma are all native ARM64. Nothing is emulated or blocking.
++- **Blockers requiring Microsoft App Assure**: None. The port completes without escalation.
++
++## Limitations & Known Issues
++None. All reachable limitations were resolved.
++
++Design facts and notes (these are not unattempted work):
++- CRC64, the default `.xz` check, has no ARM64 hardware path in upstream xz (`crc_common.h`: "CRC64 could be done with CLMUL but it's not implemented yet"). It uses generic slice-by-4 on every aarch64 OS.
++- In this cross build, libtool prints `LT_CYGPATH is empty` while linking the uninstalled wrapper executables. These lines are harmless: the build exits 0 and the tests pass once the ARM64 runtime directory is on `PATH`, as shown above.
++- gettext writes `po/*.gmo`, `po/xz.pot` and `po/stamp-po` into the source tree even for an out-of-tree build. They are generated files and are not committed.
++
++## Reverting / Coexistence
++The x86_64/i686 builds are unchanged: the new code is only reached when `__CYGWIN__` is set and the ARM64 CRC32 path is selected. To build x64, switch back to `main` or configure without `--host=aarch64-pc-cygwin`.
+-- 
+2.56.1
+

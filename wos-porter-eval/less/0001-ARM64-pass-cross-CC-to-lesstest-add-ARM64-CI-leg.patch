@@ -1,0 +1,92 @@
+From f485625926017431701c1237f0de657bde399349 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 00:51:24 +0530
+Subject: [PATCH 1/4] ARM64: pass cross CC to lesstest, add ARM64 CI leg
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ .github/workflows/main.yml | 24 ++++++++++++++++++++++--
+ Makefile.in                |  2 +-
+ Makefile.wng               |  2 +-
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/.github/workflows/main.yml b/.github/workflows/main.yml
+index 6c8b59a..32fb004 100644
+--- a/.github/workflows/main.yml
++++ b/.github/workflows/main.yml
+@@ -79,7 +79,8 @@ jobs:
+       run: make check
+ 
+   windows:
+-    runs-on: windows-latest
++    # ARM64 support: existing legs leave matrix.os unset and keep windows-latest.
++    runs-on: ${{ matrix.os || 'windows-latest' }}
+ 
+     needs: dist
+ 
+@@ -87,6 +88,19 @@ jobs:
+       matrix:
+         toolchain: [mingw-w64, msvc]
+         source: [dist, git]
++        arch: [amd64]
++        # ARM64 support: native MSVC build on the Windows 11 ARM64 runner.
++        # (arch differs from the base value, so these are added as new legs
++        # instead of being merged into the existing amd64 ones.)
++        include:
++        - toolchain: msvc
++          source: dist
++          arch: arm64
++          os: windows-11-arm
++        - toolchain: msvc
++          source: git
++          arch: arm64
++          os: windows-11-arm
+ 
+     defaults:
+       run:
+@@ -111,9 +125,15 @@ jobs:
+       if: matrix.toolchain == 'msvc'
+       env:
+         TARGETS: ${{ case(matrix.source == 'dist', 'all', 'generated all') }}
++        ARCH: ${{ matrix.arch }}
+       run: |
+         $vsPath = & "${Env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+-        & "$vsPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64
++        if ($Env:ARCH -eq 'arm64') {
++          # ARM64 support: native arm64-hosted, arm64-targeting toolchain
++          & "$vsPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch arm64 -HostArch arm64
++        } else {
++          & "$vsPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64
++        }
+         nmake -f Makefile.wnm (-split $Env:TARGETS)
+ 
+     - name: Run sanity check
+diff --git a/Makefile.in b/Makefile.in
+index e2addf2..5acb6df 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -114,7 +114,7 @@ installcheck:
+ 
+ check:
+ 	${MAKE} LESSTEST=1
+-	objdir=$$(pwd); rflags=""; if [ -z "${VERBOSE}" ]; then rflags=-e; fi; cd $(srcdir)/lesstest && ${MAKE} && ./runtest $$rflags -l "$$objdir/less_t@EXEEXT@" lt
++	objdir=$$(pwd); rflags=""; if [ -z "${VERBOSE}" ]; then rflags=-e; fi; cd $(srcdir)/lesstest && ${MAKE} CC="${CC}" LDFLAGS="${LDFLAGS}" && ./runtest $$rflags -l "$$objdir/less_t@EXEEXT@" lt
+ 
+ TAGS:
+ 	cd ${srcdir} && etags *.c *.h
+diff --git a/Makefile.wng b/Makefile.wng
+index 3e0b227..4c7123f 100644
+--- a/Makefile.wng
++++ b/Makefile.wng
+@@ -46,7 +46,7 @@ MINGW_DEFINES     = -DMINGW -DWIN32
+ # It is defined so that the compiler and linker can find the header files
+ # and library that provide regular expression support.  
+ #
+-MINGW_ROOT_PATH = /mingw-w64/mingw64
++MINGW_ROOT_PATH ?= /mingw-w64/mingw64
+ 
+ # Determine the regular expression package to be used.  
+ #
+-- 
+2.56.1
+

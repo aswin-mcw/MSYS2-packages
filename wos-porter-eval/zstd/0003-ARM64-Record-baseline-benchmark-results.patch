@@ -1,0 +1,181 @@
+From 1eb316bc8b600ee9093b517d9a0ca4a9b81a54bb Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:28:45 +0530
+Subject: [PATCH 3/4] ARM64: Record baseline benchmark results
+
+---
+ benchmarks/base_bench_win_arm.meta.json |  40 +++++++++
+ benchmarks/base_bench_win_arm.txt       | 114 ++++++++++++++++++++++++
+ 2 files changed, 154 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.meta.json
+ create mode 100644 benchmarks/base_bench_win_arm.txt
+
+diff --git a/benchmarks/base_bench_win_arm.meta.json b/benchmarks/base_bench_win_arm.meta.json
+new file mode 100644
+index 0000000..bb4b483
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.meta.json
+@@ -0,0 +1,40 @@
++{
++  "project": "zstd",
++  "version": "1.5.7",
++  "commit": "1394ced15e67883f05fad081c5d99e07e9487bcf",
++  "branch": "arm64-port",
++  "timestampUtc": "2026-11-21T19:57:49Z",
++  "host": {
++    "cpu": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
++    "logicalProcessors": 12,
++    "memoryGB": 63.3,
++    "processorArchitecture": "ARM64",
++    "osBuild": "26100",
++    "emulation": false
++  },
++  "build": {
++    "config": "Release",
++    "platform": "ARM64",
++    "generator": "Ninja (VS-bundled CMake 4.3.1-msvc1)",
++    "buildDir": "build-arm64",
++    "compiler": "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Tools\\MSVC\\14.51.36231\\bin\\Hostarm64\\arm64\\cl.exe",
++    "compilerVersion": "19.51.36248.0",
++    "cFlags": "/DWIN32 /D_WINDOWS /W3 /D_UNICODE /DUNICODE /MD /O2 /Ob2 /DNDEBUG",
++    "libzstdDefines": "-DXXH_NAMESPACE=ZSTD_ -DZSTD_DLL_EXPORT=1 -DZSTD_HEAPMODE=0 -DZSTD_LEGACY_SUPPORT=5 -DZSTD_MULTITHREAD -DZSTD_DISABLE_ASM",
++    "programsLinkShared": true
++  },
++  "inputs": {
++    "datagen_100MB.bin": {"command": "build-arm64\\tests\\datagen.exe -g100MB", "bytes": 104857600},
++    "lib_src.tar": {"command": "tar -cf lib_src.tar -C C:\\wos-eval\\work\\zstd lib", "bytes": 3339776}
++  },
++  "commands": [
++    "build-arm64\\programs\\zstd.exe -b1e19 -i1 datagen_100MB.bin",
++    "build-arm64\\programs\\zstd.exe -b1e19 -i1 lib_src.tar",
++    "build-arm64\\programs\\zstd.exe -b1e19 -i1 -T0 datagen_100MB.bin",
++    "build-arm64\\programs\\zstd.exe --ultra -b20e22 -i1 lib_src.tar",
++    "build-arm64\\tests\\fullbench.exe -i1"
++  ],
++  "environment": "cmd.exe, PATH without C:\\msys64, vcvarsarm64.bat, build-arm64\\lib prepended to PATH",
++  "nativeOutput": "console only (stdout/stderr); captured and saved as base_bench_win_arm.txt with \\r progress redraws removed",
++  "resultFile": "base_bench_win_arm.txt"
++}
+diff --git a/benchmarks/base_bench_win_arm.txt b/benchmarks/base_bench_win_arm.txt
+new file mode 100644
+index 0000000..bc65494
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.txt
+@@ -0,0 +1,114 @@
++zstd 1.5.7 -- Windows ARM64 native baseline benchmarks
++=======================================================
++Host     : Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU, 12 logical CPUs, 63.3 GB RAM
++OS       : Windows 11, build 26100, PROCESSOR_ARCHITECTURE=ARM64 (native, no emulation)
++Commit   : 1394ced15e67883f05fad081c5d99e07e9487bcf (branch arm64-port)
++Compiler : MSVC cl.exe 19.51.36248 (VS 18 Community, Hostarm64\arm64), CMake Ninja generator, Release
++Flags    : /O2 /Ob2 /DNDEBUG /MD /W3 /DUNICODE; libzstd: -DZSTD_MULTITHREAD -DZSTD_LEGACY_SUPPORT=5 -DZSTD_DISABLE_ASM
++Binaries : C:\wos-eval\work\zstd\build-arm64\programs\zstd.exe (shared-linked, ZSTD_PROGRAMS_LINK_SHARED=ON,
++           build-arm64\lib\zstd.dll on PATH), build-arm64\tests\fullbench.exe (static libzstd)
++Inputs   : datagen_100MB.bin = `datagen.exe -g100MB` (synthetic, default compressibility P=50)
++           lib_src.tar       = `tar -cf lib_src.tar -C <repo> lib` (real C source corpus, zstd lib/ tree)
++Notes    : -i1 = minimum 1 s per measurement (short runs; expect a few percent noise, especially
++           in decompression MB/s). Columns: level# file : srcSize -> dstSize (ratio), compress MB/s, decompress MB/s.
++           Progress redraws (\r) were stripped from the console output; numbers are unchanged.
++           Benchmarks were run one at a time on an otherwise idle machine.
++
++datagen_100MB.bin 104857600 bytes
++lib_src.tar 3339776 bytes
++
++### [1] zstd.exe -b1e19 -i1 datagen_100MB.bin  (datagen -g100MB, default P=50)
++  1# datagen_100MB.bin : 104857600 ->  33977815 (x3.086),  975.8 MB/s, 1254.3 MB/s
++  2# datagen_100MB.bin : 104857600 ->  32832374 (x3.194),  823.4 MB/s, 1009.4 MB/s
++  3# datagen_100MB.bin : 104857600 ->  31260276 (x3.354),  550.4 MB/s,  932.0 MB/s
++  4# datagen_100MB.bin : 104857600 ->  30884780 (x3.395),  301.5 MB/s,  879.2 MB/s
++  5# datagen_100MB.bin : 104857600 ->  30922252 (x3.391),  112.9 MB/s,  993.5 MB/s
++  6# datagen_100MB.bin : 104857600 ->  30212377 (x3.471),   96.0 MB/s, 1040.2 MB/s
++  7# datagen_100MB.bin : 104857600 ->  29904130 (x3.506),   66.2 MB/s,  968.1 MB/s
++  8# datagen_100MB.bin : 104857600 ->  29703575 (x3.530),   58.7 MB/s, 1039.8 MB/s
++  9# datagen_100MB.bin : 104857600 ->  29667685 (x3.534),   53.0 MB/s,  930.9 MB/s
++ 10# datagen_100MB.bin : 104857600 ->  29212017 (x3.590),   29.5 MB/s,  854.1 MB/s
++ 11# datagen_100MB.bin : 104857600 ->  28681646 (x3.656),   17.4 MB/s,  845.3 MB/s
++ 12# datagen_100MB.bin : 104857600 ->  28653552 (x3.659),   17.0 MB/s,  621.9 MB/s
++ 13# datagen_100MB.bin : 104857600 ->  27187258 (x3.857),   11.4 MB/s,  592.4 MB/s
++ 14# datagen_100MB.bin : 104857600 ->  26076567 (x4.021),   7.03 MB/s,  606.8 MB/s
++ 15# datagen_100MB.bin : 104857600 ->  25753682 (x4.072),   5.03 MB/s,  661.8 MB/s
++ 16# datagen_100MB.bin : 104857600 ->  24515647 (x4.277),   5.62 MB/s,  763.1 MB/s
++ 17# datagen_100MB.bin : 104857600 ->  24311534 (x4.313),   4.53 MB/s,  663.1 MB/s
++ 18# datagen_100MB.bin : 104857600 ->  23904137 (x4.387),   4.09 MB/s,  558.3 MB/s
++ 19# datagen_100MB.bin : 104857600 ->  23688313 (x4.427),   3.32 MB/s,  708.1 MB/s
++
++### [2] zstd.exe -b1e19 -i1 lib_src.tar  (tar of zstd lib/ sources)
++  1# lib_src.tar       :   3339776 ->    668008 (x5.000),  872.5 MB/s, 1775.0 MB/s
++  2# lib_src.tar       :   3339776 ->    638429 (x5.231),  473.4 MB/s, 1645.7 MB/s
++  3# lib_src.tar       :   3339776 ->    589904 (x5.662),  440.9 MB/s, 1721.6 MB/s
++  4# lib_src.tar       :   3339776 ->    587619 (x5.684),  425.8 MB/s, 1725.0 MB/s
++  5# lib_src.tar       :   3339776 ->    539408 (x6.192),   80.0 MB/s, 1655.2 MB/s
++  6# lib_src.tar       :   3339776 ->    514981 (x6.485),   65.0 MB/s, 1803.2 MB/s
++  7# lib_src.tar       :   3339776 ->    502430 (x6.647),   52.6 MB/s, 1859.1 MB/s
++  8# lib_src.tar       :   3339776 ->    494431 (x6.755),   44.5 MB/s, 1958.7 MB/s
++  9# lib_src.tar       :   3339776 ->    491135 (x6.800),   37.0 MB/s, 1959.7 MB/s
++ 10# lib_src.tar       :   3339776 ->    483858 (x6.902),   25.5 MB/s, 1957.7 MB/s
++ 11# lib_src.tar       :   3339776 ->    479188 (x6.970),   17.0 MB/s, 2050.5 MB/s
++ 12# lib_src.tar       :   3339776 ->    478999 (x6.972),   17.3 MB/s, 2043.2 MB/s
++ 13# lib_src.tar       :   3339776 ->    476377 (x7.011),   16.6 MB/s, 2002.0 MB/s
++ 14# lib_src.tar       :   3339776 ->    470445 (x7.099),   12.1 MB/s, 2048.4 MB/s
++ 15# lib_src.tar       :   3339776 ->    467533 (x7.143),   9.48 MB/s, 2115.2 MB/s
++ 16# lib_src.tar       :   3339776 ->    443395 (x7.532),   9.62 MB/s, 2045.8 MB/s
++ 17# lib_src.tar       :   3339776 ->    439151 (x7.605),   8.05 MB/s, 1973.5 MB/s
++ 18# lib_src.tar       :   3339776 ->    435801 (x7.664),   6.00 MB/s, 1933.7 MB/s
++ 19# lib_src.tar       :   3339776 ->    433654 (x7.701),   4.43 MB/s, 1993.1 MB/s
++
++### [3] zstd.exe -b1e19 -i1 -T0 datagen_100MB.bin  (multithreaded)
++  1# datagen_100MB.bin : 104857600 ->  33977815 (x3.086), 2141.3 MB/s, 1267.6 MB/s
++  2# datagen_100MB.bin : 104857600 ->  32832374 (x3.194), 2219.2 MB/s, 1014.2 MB/s
++  3# datagen_100MB.bin : 104857600 ->  31260276 (x3.354), 1692.4 MB/s,  982.1 MB/s
++  4# datagen_100MB.bin : 104857600 ->  30884780 (x3.395), 1300.6 MB/s,  979.9 MB/s
++  5# datagen_100MB.bin : 104857600 ->  30922252 (x3.391),  375.0 MB/s,  972.3 MB/s
++  6# datagen_100MB.bin : 104857600 ->  30212377 (x3.471),  284.9 MB/s, 1080.6 MB/s
++  7# datagen_100MB.bin : 104857600 ->  29904130 (x3.506),  190.3 MB/s, 1020.0 MB/s
++  8# datagen_100MB.bin : 104857600 ->  29703575 (x3.530),  157.4 MB/s, 1143.2 MB/s
++  9# datagen_100MB.bin : 104857600 ->  29667685 (x3.534),   89.4 MB/s, 1025.0 MB/s
++ 10# datagen_100MB.bin : 104857600 ->  29212017 (x3.590),   56.9 MB/s, 1082.1 MB/s
++ 11# datagen_100MB.bin : 104857600 ->  28681646 (x3.656),   36.2 MB/s, 1063.7 MB/s
++ 12# datagen_100MB.bin : 104857600 ->  28653552 (x3.659),   34.9 MB/s,  915.4 MB/s
++ 13# datagen_100MB.bin : 104857600 ->  27187258 (x3.857),   20.0 MB/s,  762.4 MB/s
++ 14# datagen_100MB.bin : 104857600 ->  26076567 (x4.021),   12.1 MB/s, 1093.9 MB/s
++ 15# datagen_100MB.bin : 104857600 ->  25753682 (x4.072),   9.15 MB/s,  817.2 MB/s
++ 16# datagen_100MB.bin : 104857600 ->  24515647 (x4.277),   11.1 MB/s,  981.4 MB/s
++ 17# datagen_100MB.bin : 104857600 ->  24311534 (x4.313),   5.08 MB/s,  909.5 MB/s
++ 18# datagen_100MB.bin : 104857600 ->  23904137 (x4.387),   4.51 MB/s,  620.1 MB/s
++ 19# datagen_100MB.bin : 104857600 ->  23688313 (x4.427),   3.68 MB/s,  543.0 MB/s
++
++### [4] zstd.exe --ultra -b20e22 -i1 lib_src.tar
++ 20# lib_src.tar       :   3339776 ->    433654 (x7.701),   4.25 MB/s, 1908.0 MB/s
++ 21# lib_src.tar       :   3339776 ->    433412 (x7.706),   3.91 MB/s, 1922.1 MB/s
++ 22# lib_src.tar       :   3339776 ->    433258 (x7.709),   3.24 MB/s, 1891.3 MB/s
++
++### [5] fullbench.exe -i1
++*** Zstandard speed analyzer 1.5.7 64-bits, by Yann Collet (Nov 22 2026) ***
++ Sample 10000000 bytes :
++ 0#compress                       :   332.3 MB/s  ( 3239077)
++ 1#decompress                     :  1273.1 MB/s  (10000000)
++ 2#compress_freshCCtx             :   338.7 MB/s  ( 3239077)
++ 3#decompressDCtx                 :  1260.3 MB/s  (10000000)
++ 4#compressContinue               :   334.0 MB/s  ( 3239077)
++ 5#compressContinue_extDict       :   335.6 MB/s  ( 3239062)
++ 6#decompressContinue             :  1278.6 MB/s  (10000000)
++ 7#compressStream                 :   298.7 MB/s  ( 3239075)
++ 8#compressStream_freshCCtx       :   298.5 MB/s  ( 3239075)
++ 9#decompressStream               :  1279.1 MB/s  (10000000)
++10#compress2                      :   339.1 MB/s  ( 3239077)
++11#compressStream2, end           :   340.1 MB/s  ( 3239077)
++12#compressStream2, end & short   :   337.8 MB/s  ( 3239077)
++13#compressStream2, continue      :   319.3 MB/s  ( 3239075)
++14#compressStream2, -T2, continue :   567.4 MB/s  ( 3240235)
++15#compressStream2, -T2, end      :   565.4 MB/s  ( 3240239)
++16#compressSequences              :   912.4 MB/s  ( 3239695)
++17#compressSequencesAndLiterals   :  1064.6 MB/s  ( 3239695)
++18#convertSequences (1st block)   : 14055.0 MB/s  (   11846)
++19#get1BlockSummary (1st block)   : 22811.1 MB/s  (   11846)
++20#decodeLiteralsHeader (1st block:144194.0 MB/s  (      39)
++21#decodeLiteralsBlock (1st block): 11232.7 MB/s  (   14193)
++22#decodeSeqHeaders (1st block)   : 44421.9 MB/s  (      49)
++BENCH_EXIT=0
+-- 
+2.56.1
+

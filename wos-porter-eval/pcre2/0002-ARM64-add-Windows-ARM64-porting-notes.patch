@@ -1,0 +1,131 @@
+From bc3047e4492c212016ce2bbbe3725d73b5ab0b34 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:26:18 +0530
+Subject: [PATCH 2/2] ARM64: add Windows ARM64 porting notes
+
+---
+ ARM64-PORT.md | 112 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 112 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..4258599
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,112 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) support for PCRE2 10.49 (upstream plus MSYS2 patches), on branch `arm64-port`.
++
++PCRE2 is portable C, and the bundled sljit JIT already has an ARM64 backend that `sljitConfigCPU.h:157` selects for `_M_ARM64`. The CMake build needed no changes for ARM64. The port is one source-line change, which re-enables the ARM64 JIT SIMD fast paths when the compiler is MSVC.
++
++## Summary of Changes
++### Build System
++- None. `CMakeLists.txt` has no architecture checks. The `-mshstk` probe is gated on `__CET__`, which is x86-only. The MSVC settings don't depend on the architecture. `cmake -A ARM64` works unchanged.
++
++### Source Code
++- `src/pcre2_jit_simd_inc.h:767` adds `|| defined _M_ARM64` to the gate for the ARM64 JIT SIMD block.
++  - cl.exe targeting ARM64 does not predefine `__ARM_NEON`/`__ARM_NEON__`. This was checked with `cl -EP` on MSVC 14.51.
++  - Without the change, MSVC builds silently compiled out `JIT_HAS_FAST_FORWARD_CHAR_SIMD`, `JIT_HAS_FAST_REQUESTED_CHAR_SIMD` and `JIT_HAS_FAST_FORWARD_CHAR_PAIR_SIMD`.
++  - The block emits A64 AdvSIMD through sljit and uses no C intrinsics. AdvSIMD is mandatory on Windows ARM64.
++  - GCC and Clang behave exactly as before.
++
++### CI/CD
++- None. The repository has no CI configuration.
++
++### New Files
++- This file only.
++
++## Build Steps (ARM64)
++Prerequisites:
++- Visual Studio 2022 or later with the **MSVC ARM64 build tools** and a **Windows 11 SDK**. This port was built with VS 18.8 and MSVC 14.51.36231.
++- CMake 3.15 or later. The copy bundled with VS works.
++
++### Build
++```powershell
++cmake -S . -B build-arm64 -G "Visual Studio 18 2026" -A ARM64 `
++  -DPCRE2_SUPPORT_JIT=ON -DPCRE2_BUILD_TESTS=ON `
++  -DPCRE2_BUILD_PCRE2_8=ON -DPCRE2_BUILD_PCRE2_16=ON -DPCRE2_BUILD_PCRE2_32=ON `
++  -DBUILD_SHARED_LIBS=ON
++cmake --build build-arm64 --config Release --parallel
++```
++- Use `-G "Visual Studio 17 2022"` with VS 2022.
++- Build output goes to `build-arm64\Release`.
++- The build produced 0 warnings and 0 errors.
++
++### Run Tests
++Run from cmd or PowerShell, not an MSYS shell:
++```powershell
++ctest --test-dir build-arm64 -C Release --output-on-failure
++build-arm64\Release\pcre2test.exe -C     # expect "Architecture: ARM-64 64bit (little endian + unaligned)"
++```
++Expected result: 4 passed, 0 failed.
++
++### Run Benchmarks
++PCRE2 has no benchmark suite, so no benchmark file was produced.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon, Windows 11 26100)
++- **Executed**: Yes
++- **Passed**: 4     **Failed**: 0     **Skipped**: 0
++
++| Test | Result | Detail |
++|---|---|---|
++| pcre2_test_bat (RunTest.bat) | Passed | 100 test-file runs passed across 8/16/32-bit, 33 of them JIT runs. 23 skips are expected for this configuration: width-specific files, test 16 because JIT is present, and the EBCDIC files. |
++| pcre2_grep_test_bat (RunGrepTest.bat) | Passed | All 7 sections |
++| pcre2_jit_test | Passed | 706 main tests, plus 132/39/26 invalid-UTF8/16/32 tests. "Target CPU of SLJIT compiler: ARM-64 64bit" |
++| pcre2posix_test | Passed | |
++
++## Test Fixes Applied
++None. All tests passed without modification.
++
++## Benchmark Results
++- There is no benchmark suite, and none was committed.
++- A one-off `pcre2test -tm` sanity check on a 22 KB subject gave, for `/[a-z]+@[a-z]+\.com/`, 400 us/match interpreted against 15 us/match with JIT.
++
++## NEON Optimizations
++Skipped because `WOS_SKIP_OPTIMIZE=1` was set (Phase 7 skipped). The only SIMD-related change is the gate fix above, which re-enables code paths that already existed upstream.
++
++## ARM64 vs x64 Performance Comparison
++No x64 reference was supplied, so a differential comparison does not apply.
++
++## Architecture Verification
++All built binaries were verified with `dumpbin /HEADERS` as `AA64 machine (ARM64)`.
++
++| Binary | Machine | Size (bytes) |
++|---|---|---|
++| pcre2-8.dll | AA64 | 591360 |
++| pcre2-16.dll | AA64 | 557568 |
++| pcre2-32.dll | AA64 | 542720 |
++| pcre2-posix.dll | AA64 | 13824 |
++| pcre2grep.exe | AA64 | 574976 |
++| pcre2test.exe | AA64 | 1872896 |
++| pcre2_jit_test.exe | AA64 | 1521664 |
++| pcre2posix_test.exe | AA64 | 315904 |
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native.
++  - Do not use ARM64EC. Under `/arm64EC` MSVC defines `_M_X64`, so sljit would pick the x86-64 backend, and the JIT code would then run emulated.
++- **AppReady stages reached**: Assess done, Build done, Deploy not applicable, Optimize skipped by request.
++- **Dependencies**:
++  - None are required.
++  - zlib, bzip2, readline and editline are optional pcre2grep/pcre2test extras. None were present for this build, so they were left disabled.
++  - sljit is vendored in `deps/sljit` and selects its ARM64 backend natively.
++- **Blockers requiring App Assure**: None.
++
++## Limitations & Known Issues
++None. All reachable limitations were resolved.
++
++Design facts, for anyone enabling the JIT in the MSYS2/Cygwin (`aarch64-pc-cygwin`) build:
++- The MSYS2 recipe builds the shipped package with `--disable-jit --disable-pcre2grep-jit` on every architecture. sljit is therefore not compiled into `msys-pcre2-*.dll`, and the items below are latent.
++- An existing native build of that package, `msys-pcre2-8-0.dll` in the Git for Windows ARM64 tree, is `AA64`.
++- If the JIT is ever enabled there, two sljit spots need a `__CYGWIN__` case:
++  1. **Instruction-cache flush.** `deps/sljit/sljit_src/sljitConfigInternal.h:279-293` selects GCC's `__builtin___clear_cache` before the `_WIN32` `FlushInstructionCache` branch. libgcc's aarch64 implementation reads `CTR_EL0`, which faults under Windows.
++  2. **Stack probe.** `deps/sljit/sljit_src/sljitNativeARM_64.c:1345,1367` guards its stack probe with `#ifdef _WIN32`, so frames larger than 4 KB are not probed on Cygwin.
++
++## Reverting / Coexistence
++The x64 build is unchanged; the edit only adds a condition that is true on ARM64. To build for x64, use `-A x64` or switch back to `main`.
+-- 
+2.56.1
+

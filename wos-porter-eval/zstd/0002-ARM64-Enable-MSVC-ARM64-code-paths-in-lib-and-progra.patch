@@ -1,0 +1,96 @@
+From 1394ced15e67883f05fad081c5d99e07e9487bcf Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 00:57:04 +0530
+Subject: [PATCH 2/4] ARM64: Enable MSVC ARM64 code paths in lib and programs
+
+Use the __prefetch() intrinsic for PREFETCH_L1/L2 on MSVC ARM64, where
+inline asm is unavailable, and enable the existing aarch64 prefetch
+sites for _M_ARM64. Treat _M_ARM64 as little-endian in
+MEM_isLittleEndian() and as a 64-bit target in platform.h.
+---
+ lib/common/compiler.h                  | 4 ++++
+ lib/common/mem.h                       | 2 +-
+ lib/compress/zstd_double_fast.c        | 4 ++--
+ lib/decompress/zstd_decompress_block.c | 2 +-
+ programs/platform.h                    | 2 +-
+ 5 files changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/lib/common/compiler.h b/lib/common/compiler.h
+index 1f7da50..de42a6b 100644
+--- a/lib/common/compiler.h
++++ b/lib/common/compiler.h
+@@ -147,6 +147,10 @@
+ #  elif defined(__aarch64__)
+ #    define PREFETCH_L1(ptr)  do { __asm__ __volatile__("prfm pldl1keep, %0" ::"Q"(*(ptr))); } while (0)
+ #    define PREFETCH_L2(ptr)  do { __asm__ __volatile__("prfm pldl2keep, %0" ::"Q"(*(ptr))); } while (0)
++#  elif defined(_MSC_VER) && defined(_M_ARM64)  /* MSVC ARM64: no inline asm, use the __prefetch() intrinsic (PRFM PLDL1KEEP) */
++#    include <intrin.h>
++#    define PREFETCH_L1(ptr)  __prefetch((const void*)(ptr))
++#    define PREFETCH_L2(ptr)  __prefetch((const void*)(ptr))  /* __prefetch2 not used: availability varies across MSVC versions */
+ #  else
+ #    define PREFETCH_L1(ptr) do { (void)(ptr); } while (0)  /* disabled */
+ #    define PREFETCH_L2(ptr) do { (void)(ptr); } while (0)  /* disabled */
+diff --git a/lib/common/mem.h b/lib/common/mem.h
+index e66a2ea..017c2a7 100644
+--- a/lib/common/mem.h
++++ b/lib/common/mem.h
+@@ -147,7 +147,7 @@ MEM_STATIC unsigned MEM_isLittleEndian(void)
+     return 1;
+ #elif defined(__clang__) && __BIG_ENDIAN__
+     return 0;
+-#elif defined(_MSC_VER) && (_M_X64 || _M_IX86)
++#elif defined(_MSC_VER) && (_M_X64 || _M_IX86 || _M_ARM64)  /* Windows on ARM64 is always little-endian */
+     return 1;
+ #elif defined(__DMC__) && defined(_M_IX86)
+     return 1;
+diff --git a/lib/compress/zstd_double_fast.c b/lib/compress/zstd_double_fast.c
+index 1a266e7..670cc50 100644
+--- a/lib/compress/zstd_double_fast.c
++++ b/lib/compress/zstd_double_fast.c
+@@ -233,7 +233,7 @@ size_t ZSTD_compressBlock_doubleFast_noDict_generic(
+             hl0 = hl1;
+             idxl0 = idxl1;
+             matchl0 = matchl1;
+-    #if defined(__aarch64__)
++    #if defined(__aarch64__) || defined(_M_ARM64)
+             PREFETCH_L1(ip+256);
+     #endif
+         } while (ip1 <= ilimit);
+@@ -448,7 +448,7 @@ size_t ZSTD_compressBlock_doubleFast_dictMatchState_generic(
+         }   }
+ 
+         ip += ((ip-anchor) >> kSearchStrength) + 1;
+-#if defined(__aarch64__)
++#if defined(__aarch64__) || defined(_M_ARM64)
+         PREFETCH_L1(ip+256);
+ #endif
+         continue;
+diff --git a/lib/decompress/zstd_decompress_block.c b/lib/decompress/zstd_decompress_block.c
+index 862785a..f5dee68 100644
+--- a/lib/decompress/zstd_decompress_block.c
++++ b/lib/decompress/zstd_decompress_block.c
+@@ -1013,7 +1013,7 @@ size_t ZSTD_execSequence(BYTE* op,
+     assert(op != NULL /* Precondition */);
+     assert(oend_w < oend /* No underflow */);
+ 
+-#if defined(__aarch64__)
++#if defined(__aarch64__) || defined(_M_ARM64)
+     /* prefetch sequence starting from match that will be used for copy later */
+     PREFETCH_L1(match);
+ #endif
+diff --git a/programs/platform.h b/programs/platform.h
+index e2cc1c3..a978715 100644
+--- a/programs/platform.h
++++ b/programs/platform.h
+@@ -33,7 +33,7 @@
+   || defined __powerpc64__ || defined __ppc64__ || defined __PPC64__                                                /* POWER 64-bit */  \
+   || (defined __sparc && (defined __sparcv9 || defined __sparc_v9__ || defined __arch64__)) || defined __sparc64__  /* SPARC 64-bit */  \
+   || defined __x86_64__ || defined _M_X64                                                                           /* x86 64-bit */    \
+-  || defined __arm64__ || defined __aarch64__ || defined __ARM64_ARCH_8__                                           /* ARM 64-bit */    \
++  || defined __arm64__ || defined __aarch64__ || defined _M_ARM64 || defined __ARM64_ARCH_8__                       /* ARM 64-bit */    \
+   || (defined __mips  && (__mips == 64 || __mips == 4 || __mips == 3))                                              /* MIPS 64-bit */   \
+   || defined _LP64 || defined __LP64__ /* NetBSD, OpenBSD */ || defined __64BIT__ /* AIX */ || defined _ADDR64 /* Cray */               \
+   || (defined __SIZEOF_POINTER__ && __SIZEOF_POINTER__ == 8) /* gcc */
+-- 
+2.56.1
+

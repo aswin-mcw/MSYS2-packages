@@ -1,0 +1,123 @@
+From 0b98b5f746406740862e6532b2f0e13bf5881fce Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:48:43 +0530
+Subject: [PATCH 3/4] ARM64: record baseline benchmark results
+
+util-linux has no benchmark suite, so this records a small reproducible
+one: hexdump -C on 8 MiB, rev on 200k lines, column -t on 50k rows, and
+2000 look / 500 uuidgen -r / 500 getopt invocations. The ARM64 build
+runs natively from an ARM64 MSYS userland. It is compared with the
+official x86_64 MSYS2 util-linux 2.42.4 and with an x86_64 build of
+this same tree, both under x64 emulation. Outputs match byte for byte
+across all three.
+
+The ARM64 build is 1.6-1.9x faster on the process-spawn workloads and
+0.76-0.90x on the stream workloads (hexdump, rev, column).
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ benchmarks/base_bench_win_arm.meta.json | 28 +++++++++++++
+ benchmarks/base_bench_win_arm.txt       | 56 +++++++++++++++++++++++++
+ 2 files changed, 84 insertions(+)
+ create mode 100644 benchmarks/base_bench_win_arm.meta.json
+ create mode 100644 benchmarks/base_bench_win_arm.txt
+
+diff --git a/benchmarks/base_bench_win_arm.meta.json b/benchmarks/base_bench_win_arm.meta.json
+new file mode 100644
+index 0000000..d109245
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.meta.json
+@@ -0,0 +1,28 @@
++{
++  "project": "util-linux 2.40.2 (MSYS2 recipe tree)",
++  "cpu": "Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU",
++  "hostArch": "ARM64",
++  "hostArchNote": "PROCESSOR_ARCHITECTURE reads AMD64 inside the x64-emulated MSYS2 shell; the host is native Windows ARM64",
++  "osBuild": "26100",
++  "commit": "100ca63a92f73741d2c11e726c811a84e5b1bfc8",
++  "branch": "arm64-port",
++  "timestampUtc": "2026-11-22T20:18:24Z",
++  "buildConfig": "Release (-O2), aarch64-pc-cygwin (Windows ARM64, MSYS layer)",
++  "toolchain": {
++    "arm64": "aarch64-pc-cygwin-gcc (GCC) 17.0.0 20260828 (experimental), cross from x86_64 MSYS2; CFLAGS=-O2 -pipe --param=ggc-min-heapsize=2000000 --param=ggc-min-expand=1000",
++    "x64Same": "gcc (GCC) 16.2.0 native x86_64 MSYS2, CFLAGS=-O2 -pipe, same configure options"
++  },
++  "runtimes": {
++    "arm64": "msys-2.0.dll 3.6.10-45-gda84778cbc92 aarch64 (C:/gfw-native/native, copied to a scratch root)",
++    "x64": "msys-2.0.dll 3.6.12 x86_64 (C:/msys64), x64 emulation"
++  },
++  "configurations": {
++    "arm64": "build-arm64/dest/usr/bin",
++    "x64-msys2": "C:/msys64/usr/bin (util-linux 2.42.4-1)",
++    "x64-same": "x86_64 build of this tree, installed to a scratch DESTDIR"
++  },
++  "benchmarkType": "custom (util-linux has no benchmark suite); scripts kept outside the repo",
++  "nativeCommand": "bash gen-data.sh; bash run-all.sh  (REPS=5; run-all.sh runs bench.sh <bindir> <label> 5 for each configuration in its own userland)",
++  "originalOutput": "C:/wos-eval/work/util-linux-scratch/bench/results.txt (console output of run-all.sh)",
++  "metric": "wall-clock milliseconds, median of 5 runs"
++}
+diff --git a/benchmarks/base_bench_win_arm.txt b/benchmarks/base_bench_win_arm.txt
+new file mode 100644
+index 0000000..b81654d
+--- /dev/null
++++ b/benchmarks/base_bench_win_arm.txt
+@@ -0,0 +1,56 @@
++util-linux 2.40.2 (MSYS2 recipe tree, branch arm64-port) - Windows ARM64 baseline benchmark
++=========================================================================================
++Host: Snapdragon(R) X Elite - X1E80100 - Qualcomm(R) Oryon(TM) CPU (SC8380XP), Windows 11 ARM64. Reps=5 per workload, wall clock, median reported.
++Configurations (run one after another on an otherwise idle host):
++  arm64     - this tree, aarch64-pc-cygwin -O2, build-arm64/dest/usr/bin, run natively from an ARM64 MSYS
++              userland (Git-for-Windows native ARM64 tree, msys-2.0.dll 3.6.10 aarch64)
++  x64-msys2 - official MSYS2 util-linux 2.42.4-1 in C:\msys64\usr\bin, x86_64 msys-2.0.dll 3.6.12,
++              run under Windows x64 emulation (Prism)
++  x64-same  - this same tree built natively by x86_64 MSYS2 with the same configure options and -O2,
++              run under x64 emulation (isolates the util-linux version difference)
++Workloads (deterministic inputs from gen-data.sh, awk srand seeds 42/7/3):
++  hexdump_C_8MiB     hexdump -C on an 8 MiB file
++  rev_200k_lines     rev on 200,000 lines (10 MB)
++  column_t_50k_rows  column -t on 50,000 rows x 5 columns
++  look_x2000         2,000 look invocations against a 200k-word sorted list (process-spawn bound)
++  uuidgen_r_x500     500 uuidgen -r invocations (process-spawn bound)
++  getopt_x500        500 getopt invocations with short+long options (process-spawn bound)
++Spawn-bound loops are driven by the bash of each configuration (ARM64 bash for arm64, emulated x64 bash for
++the x64 rows), so they measure the whole userland, not util-linux alone.
++out_md5 = md5 of the workload output (stream workloads) or of the result count (loop workloads); identical
++across all three configurations, so the outputs match byte for byte.
++
++Summary (median ms; ratio = x64 / arm64, >1 means ARM64 is faster)
++workload                  arm64  x64-msys2   x64-same  msys2/arm64   same/arm64
++hexdump_C_8MiB             4050       3098       3068         0.76         0.76
++rev_200k_lines             1783       1601       1369         0.90         0.77
++column_t_50k_rows           515        432        427         0.84         0.83
++look_x2000                33292      62856      57083         1.89         1.71
++uuidgen_r_x500             8736      15225      14244         1.74         1.63
++getopt_x500                8386      13893      14048         1.66         1.68
++
++Raw results
++-----------
++# arm64 bindir=/c/wos-eval/work/util-linux/build-arm64/dest/usr/bin reps=5 MSYS_NT-10.0-26100 3.6.10-45-gda84778cbc92-dirty-da84778c.aarch64 aarch64
++arm64    hexdump_C_8MiB         median_ms=4050    min_ms=3955    runs=4094 4050 4118 3993 3955 out_md5=1f9d38ea8f82
++arm64    rev_200k_lines         median_ms=1783    min_ms=1741    runs=1783 1863 1741 1796 1741 out_md5=dd3beab559c8
++arm64    column_t_50k_rows      median_ms=515     min_ms=506     runs=604 515 524 507 506 out_md5=8d73f6c4da81
++arm64    look_x2000             median_ms=33292   min_ms=30688   runs=33292 31045 30688 34294 36198 out_md5=085ff8d6aba1
++arm64    uuidgen_r_x500         median_ms=8736    min_ms=7627    runs=10800 9596 8736 8663 7627 out_md5=905f2bb7e885
++arm64    getopt_x500            median_ms=8386    min_ms=7209    runs=7924 8647 7209 8807 8386 out_md5=a56f28ee8599
++# x64-msys2 bindir=/usr/bin reps=5 MSYS_NT-10.0-26100-ARM64 3.6.12-50c44b7c.x86_64 x86_64
++x64-msys2 hexdump_C_8MiB         median_ms=3098    min_ms=3013    runs=3085 3157 3111 3013 3098 out_md5=1f9d38ea8f82
++x64-msys2 rev_200k_lines         median_ms=1601    min_ms=1497    runs=1643 1591 1697 1601 1497 out_md5=dd3beab559c8
++x64-msys2 column_t_50k_rows      median_ms=432     min_ms=422     runs=500 473 427 432 422 out_md5=8d73f6c4da81
++x64-msys2 look_x2000             median_ms=62856   min_ms=62230   runs=62230 62569 62856 72070 67185 out_md5=085ff8d6aba1
++x64-msys2 uuidgen_r_x500         median_ms=15225   min_ms=13511   runs=15225 13964 17437 13511 25281 out_md5=905f2bb7e885
++x64-msys2 getopt_x500            median_ms=13893   min_ms=13420   runs=31505 31851 13893 13420 13554 out_md5=a56f28ee8599
++# x64-same bindir=/c/wos-eval/work/util-linux-scratch/build-x64/dest/usr/bin reps=5 MSYS_NT-10.0-26100-ARM64 3.6.12-50c44b7c.x86_64 x86_64
++x64-same hexdump_C_8MiB         median_ms=3068    min_ms=2970    runs=3112 2983 3068 3085 2970 out_md5=1f9d38ea8f82
++x64-same rev_200k_lines         median_ms=1369    min_ms=1351    runs=1459 1369 1351 1365 1477 out_md5=dd3beab559c8
++x64-same column_t_50k_rows      median_ms=427     min_ms=411     runs=467 428 427 422 411 out_md5=8d73f6c4da81
++x64-same look_x2000             median_ms=57083   min_ms=52707   runs=56000 57083 87381 57182 52707 out_md5=085ff8d6aba1
++x64-same uuidgen_r_x500         median_ms=14244   min_ms=12614   runs=12614 13203 14551 14457 14244 out_md5=905f2bb7e885
++x64-same getopt_x500            median_ms=14048   min_ms=13738   runs=13738 14204 14007 14220 14048 out_md5=a56f28ee8599
++
++[exited with code 0]
+-- 
+2.56.1
+

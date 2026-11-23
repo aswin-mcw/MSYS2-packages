@@ -1,0 +1,30 @@
+From 399d4a953b1f1485c38067e6df6bdb39c51a4910 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:17:46 +0530
+Subject: [PATCH 1/2] ARM64: enable JIT SIMD fast paths for MSVC ARM64
+ (_M_ARM64)
+
+cl.exe targeting ARM64 does not predefine __ARM_NEON/__ARM_NEON__, so
+the sljit ARM64 SIMD fast-forward paths in pcre2_jit_simd_inc.h were
+compiled out for MSVC builds even though AdvSIMD is architecturally
+mandatory on ARMv8-A. Accept _M_ARM64 as well.
+---
+ src/pcre2_jit_simd_inc.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pcre2_jit_simd_inc.h b/src/pcre2_jit_simd_inc.h
+index 0a24cda..932df3e 100644
+--- a/src/pcre2_jit_simd_inc.h
++++ b/src/pcre2_jit_simd_inc.h
+@@ -764,7 +764,7 @@ if (common->match_end_ptr != 0)
+ 
+ #endif /* SLJIT_CONFIG_X86 */
+ 
+-#if (defined SLJIT_CONFIG_ARM_64 && SLJIT_CONFIG_ARM_64 && (defined __ARM_NEON || defined __ARM_NEON__))
++#if (defined SLJIT_CONFIG_ARM_64 && SLJIT_CONFIG_ARM_64 && (defined __ARM_NEON || defined __ARM_NEON__ || defined _M_ARM64))
+ 
+ #if PCRE2_CODE_UNIT_WIDTH == 8
+ #define PCRE2_REPLICATE_TYPE (SLJIT_SIMD_REG_128 | SLJIT_SIMD_ELEM_8)
+-- 
+2.56.1
+

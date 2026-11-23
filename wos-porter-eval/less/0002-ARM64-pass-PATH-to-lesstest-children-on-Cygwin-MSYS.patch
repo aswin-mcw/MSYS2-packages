@@ -1,0 +1,76 @@
+From 171d2fd59b039dff41396737cdbf2784b9aa101e Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:05:01 +0530
+Subject: [PATCH 2/4] ARM64: pass PATH to lesstest children on Cygwin/MSYS
+
+lesstest execs less_t and lt_screen with a stripped environment (only
+LESS* vars, or none at all). On Cygwin/MSYS the children are Windows
+processes, so without PATH the loader cannot find msys-2.0.dll and every
+lesstest script fails with "error while loading shared libraries". This
+affects the x64 MSYS build identically; on aarch64-pc-cygwin it also
+prevents the ARM64 runtime DLLs in the sysroot from being located.
+Forward lesstest's own PATH under __CYGWIN__ only; other platforms are
+unchanged. make check now runs 19/19 on both aarch64 and x86_64 MSYS.
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ lesstest/pipeline.c | 29 +++++++++++++++++++++++++++--
+ 1 file changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/lesstest/pipeline.c b/lesstest/pipeline.c
+index 71e758f..5202622 100644
+--- a/lesstest/pipeline.c
++++ b/lesstest/pipeline.c
+@@ -33,6 +33,31 @@ static const char* basename(const char* path) {
+ 	return slash+1;
+ }
+ 
++#ifdef __CYGWIN__
++// On Cygwin/MSYS the child is a Windows process: without PATH in its
++// environment the Windows loader cannot find the runtime DLLs
++// (cygwin1.dll / msys-2.0.dll), so pass lesstest's own PATH through.
++static char* const* with_path(char* const* envp) {
++	const char* path = getenv("PATH");
++	int n = 0;
++	if (path == NULL) return envp;
++	while (envp[n] != NULL) {
++		if (strncmp(envp[n], "PATH=", 5) == 0) return envp;
++		++n;
++	}
++	char** nenvp = malloc(sizeof(char*) * (n + 2));
++	char* pv = malloc(strlen(path) + 6);
++	strcpy(pv, "PATH=");
++	strcat(pv, path);
++	for (int i = 0; i < n; ++i) nenvp[i] = envp[i];
++	nenvp[n] = pv;
++	nenvp[n+1] = NULL;
++	return nenvp;
++}
++#else
++#define with_path(envp) (envp)
++#endif
++
+ // Exec an instance of less in the current process.
+ static void become_child_less(char* less, int argc, char* const* argv, char* const* envp, const char* tempfile, int less_in_pipe[2], int screen_in_pipe[2]) {
+ 	if (verbose) fprintf(stderr, "less child: in %d, out %d, close %d,%d\n", less_in_pipe[RD], screen_in_pipe[WR], less_in_pipe[WR], screen_in_pipe[RD]);
+@@ -51,7 +76,7 @@ static void become_child_less(char* less, int argc, char* const* argv, char* con
+ 	}
+ 	less_argv[less_argc] = NULL;
+ 	if (verbose) { print_strings("less argv", less_argv); print_strings("less envp", envp); }
+-	execve(less, less_argv, envp);
++	execve(less, less_argv, with_path(envp));
+ 	fprintf(stderr, "cannot exec %s: %s\n", less, strerror(errno));
+ 	exit(1);
+ }
+@@ -85,7 +110,7 @@ static void become_child_screen(char* lt_screen, int screen_width, int screen_he
+ 	screen_argv[screen_argc] = NULL;
+ 	if (verbose) print_strings("screen argv", screen_argv);
+ 	char* const screen_envp[] = { NULL };
+-	execve(lt_screen, screen_argv, screen_envp);
++	execve(lt_screen, screen_argv, with_path(screen_envp));
+ 	fprintf(stderr, "cannot exec %s: %s\n", lt_screen, strerror(errno));
+ 	exit(1);
+ }
+-- 
+2.56.1
+

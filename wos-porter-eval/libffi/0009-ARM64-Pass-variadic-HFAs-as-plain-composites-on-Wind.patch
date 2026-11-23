@@ -1,0 +1,336 @@
+From c7b5f6efe165ec4687a8e22ad0efd699469e056c Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:52:41 +0530
+Subject: [PATCH 09/12] ARM64: Pass variadic HFAs as plain composites on
+ Windows
+
+The Windows ARM64 ABI uses no FP/SIMD registers for variadic functions
+and treats HFAs/HVAs like any other composite: arguments are laid out
+on an imaginary stack whose first 64 bytes are x0-x7.  ffi_call and the
+closure handler instead gave each HFA member its own X register (via
+the 16-byte-stride extend/compress helpers), did not pass HFAs larger
+than 16 bytes by reference, and never split a composite between x7 and
+the stack.  A variadic call with an HFA argument crashed.
+
+Treat FP values and HFAs/HVAs in FFI_WIN64 variadic calls as ordinary
+composites, split them between the last X registers and the stack when
+needed, and reserve the by-reference pointer slot for large HFAs.
+
+Add libffi.call/va_hfa.c, which calls and implements a variadic
+function with float and double HFAs of every size after 0-7 integer
+arguments.
+---
+ src/aarch64/ffi.c              | 119 +++++++++++++++++--------------
+ testsuite/libffi.call/va_hfa.c | 126 +++++++++++++++++++++++++++++++++
+ 2 files changed, 193 insertions(+), 52 deletions(-)
+ create mode 100644 testsuite/libffi.call/va_hfa.c
+
+diff --git a/src/aarch64/ffi.c b/src/aarch64/ffi.c
+index fe2354b..bd56a6c 100644
+--- a/src/aarch64/ffi.c
++++ b/src/aarch64/ffi.c
+@@ -801,6 +801,20 @@ ffi_prep_cif_machdep_var(ffi_cif *cif, unsigned int nfixedargs, unsigned int nto
+ {
+   ffi_status status = ffi_prep_cif_machdep (cif);
+   cif->flags |= AARCH64_FLAG_VARARG;
++  /* Windows ARM64 variadic calls also pass HFAs/HVAs larger than 16 bytes
++     by reference; reserve the pointer slot that ffi_prep_cif_machdep only
++     reserves for other composites.  */
++  if (status == FFI_OK && cif->abi == FFI_WIN64)
++    {
++      unsigned int i, extra = 0;
++      for (i = 0; i < cif->nargs; i++)
++	{
++	  ffi_type *ty = cif->arg_types[i];
++	  if (ty->size > 16 && is_vfp_type (ty))
++	    extra += 8;
++	}
++      cif->bytes = (unsigned) FFI_ALIGN (cif->bytes + extra, 16);
++    }
+   return status;
+ }
+ #endif /* __APPLE__ */
+@@ -920,33 +934,23 @@ ffi_call_int (ffi_cif *cif, void (*fn)(void), void *orig_rvalue,
+ 	case FFI_TYPE_COMPLEX:
+ 	  {
+ 	    h = is_vfp_type (ty);
++	    /* Windows ARM64 variadic functions use no FP/SIMD registers and
++	       treat HFAs/HVAs like any other composite: arguments are laid
++	       out on an imaginary stack whose first 64 bytes are x0-x7.  */
++	    if (cif->abi == FFI_WIN64 && isvariadic)
++	      h = 0;
+ 	    if (h)
+ 	      {
+               int elems = 4 - (h & 3);
+-              if (cif->abi == FFI_WIN64 && isvariadic)
+-              {
+-                if (state.ngrn + elems <= N_X_ARG_REG)
+-                {
+-                  dest = &context->x[state.ngrn];
+-                  state.ngrn += elems;
+-                  extend_hfa_type(dest, a, h);
+-                  break;
+-                }
+-                state.nsrn = N_X_ARG_REG;
+-                dest = allocate_to_stack(&state, stack, ty->alignment, s);
+-              }
+-              else
+-              {
+-                if (state.nsrn + elems <= N_V_ARG_REG)
++              if (state.nsrn + elems <= N_V_ARG_REG)
+                 {
+                   dest = &context->v[state.nsrn];
+                   state.nsrn += elems;
+                   extend_hfa_type (dest, a, h);
+                   break;
+                 }
+-                state.nsrn = N_V_ARG_REG;
+-                dest = allocate_to_stack (&state, stack, ty->alignment, s);
+-              }
++              state.nsrn = N_V_ARG_REG;
++              dest = allocate_to_stack (&state, stack, ty->alignment, s);
+ 	      }
+ 	    else if (s > 16)
+ 	      {
+@@ -973,6 +977,17 @@ ffi_call_int (ffi_cif *cif, void (*fn)(void), void *orig_rvalue,
+ 		    dest = &context->x[state.ngrn];
+                     state.ngrn += (unsigned int)n;
+ 		  }
++		else if (cif->abi == FFI_WIN64 && isvariadic
++			 && state.ngrn < N_X_ARG_REG)
++		  {
++		    /* Windows ARM64 variadic: the composite is split between
++		       the last X registers and the stack.  The stack area
++		       directly follows context->x[], so one copy fills both.  */
++		    FFI_ASSERT (state.nsaa == 0);
++		    dest = &context->x[state.ngrn];
++		    state.nsaa = (state.ngrn + n - N_X_ARG_REG) * 8;
++		    state.ngrn = N_X_ARG_REG;
++		  }
+ 		else
+ 		  {
+ 		    /* Otherwise, there are insufficient X registers. Further
+@@ -1207,47 +1222,32 @@ ffi_closure_SYSV_inner (ffi_cif *cif,
+ 	case FFI_TYPE_VECTOR:
+ 	case FFI_TYPE_COMPLEX:
+ 	  h = is_vfp_type (ty);
++	  /* Windows ARM64 variadic functions: HFAs/HVAs and FP values are
++	     ordinary composites in X registers and on the stack.  */
++	  if (cif->abi == FFI_WIN64 && isvariadic)
++	    h = 0;
+ 	  if (h)
+ 	    {
+ 	      n = 4 - (h & 3);
+-              if (cif->abi == FFI_WIN64 && isvariadic)
++              if (state.nsrn + n <= N_V_ARG_REG)
+                 {
+-                  if (state.ngrn + n <= N_X_ARG_REG)
+-                    {
+-                      void *reg = &context->x[state.ngrn];
+-                      state.ngrn += (unsigned int)n;
+-
+-                      /* Eeek! We need a pointer to the structure, however the
+-                       homogeneous float elements are being passed in individual
+-                       registers, therefore for float and double the structure
+-                       is not represented as a contiguous sequence of bytes in
+-                       our saved register context.  We don't need the original
+-                       contents of the register storage, so we reformat the
+-                       structure into the same memory.  */
+-                      avalue[i] = compress_hfa_type(reg, reg, h);
+-                    }
+-                  else
+-                    {
+-                      state.ngrn = N_X_ARG_REG;
+-                      state.nsrn = N_V_ARG_REG;
+-                      avalue[i] = allocate_to_stack(&state, stack,
+-                             ty->alignment, s);
+-                    }
++                  void *reg = &context->v[state.nsrn];
++                  state.nsrn += (unsigned int)n;
++
++                  /* Eeek! We need a pointer to the structure, however the
++                     homogeneous float elements are being passed in individual
++                     registers, therefore for float and double the structure
++                     is not represented as a contiguous sequence of bytes in
++                     our saved register context.  We don't need the original
++                     contents of the register storage, so we reformat the
++                     structure into the same memory.  */
++                  avalue[i] = compress_hfa_type(reg, reg, h);
+                 }
+               else
+                 {
+-                  if (state.nsrn + n <= N_V_ARG_REG)
+-                    {
+-                      void *reg = &context->v[state.nsrn];
+-                      state.nsrn += (unsigned int)n;
+-                      avalue[i] = compress_hfa_type(reg, reg, h);
+-                    }
+-                  else
+-                    {
+-                      state.nsrn = N_V_ARG_REG;
+-                      avalue[i] = allocate_to_stack(&state, stack,
+-                                                   ty->alignment, s);
+-                    }
++                  state.nsrn = N_V_ARG_REG;
++                  avalue[i] = allocate_to_stack(&state, stack,
++                                               ty->alignment, s);
+                 }
+             }
+           else if (s > 16)
+@@ -1275,6 +1275,21 @@ ffi_closure_SYSV_inner (ffi_cif *cif,
+                   avalue[i] = &context->x[state.ngrn];
+                   state.ngrn += (unsigned int)n;
+                 }
++              else if (cif->abi == FFI_WIN64 && isvariadic
++                       && state.ngrn < N_X_ARG_REG)
++                {
++                  /* Windows ARM64 variadic: the composite was split between
++                     the last X registers and the caller's stack; join the
++                     two parts.  */
++                  size_t nreg = N_X_ARG_REG - state.ngrn;
++                  char *buf = alloca (n * 8);
++                  FFI_ASSERT (state.nsaa == 0);
++                  memcpy (buf, &context->x[state.ngrn], nreg * 8);
++                  memcpy (buf + nreg * 8, stack, (n - nreg) * 8);
++                  state.nsaa = (n - nreg) * 8;
++                  state.ngrn = N_X_ARG_REG;
++                  avalue[i] = buf;
++                }
+               else
+                 {
+                   state.ngrn = N_X_ARG_REG;
+diff --git a/testsuite/libffi.call/va_hfa.c b/testsuite/libffi.call/va_hfa.c
+new file mode 100644
+index 0000000..36f3163
+--- /dev/null
++++ b/testsuite/libffi.call/va_hfa.c
+@@ -0,0 +1,126 @@
++/* Area:		ffi_call, closure_call
++   Purpose:		Test passing HFAs in variable argument lists, including
++			HFAs split between the last argument registers and the
++			stack.  On Windows ARM64 these are plain composites.
++   Limitations:	none.
++   PR:			none.
++   Originator:	none.  */
++
++/* { dg-do run } */
++
++#include "ffitest.h"
++#include <stdarg.h>
++typedef struct { float a, b; } F2;
++typedef struct { float a, b, c; } F3;
++typedef struct { float a, b, c, d; } F4;
++typedef struct { double a, b; } D2;
++typedef struct { double a, b, c; } D3;
++typedef struct { double a, b, c, d; } D4;
++
++static int fails;
++#define CHK(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
++
++/* nint leading ints, then: F2, F3, F4, D2, D3, D4, double */
++static double callee(int nint, ...)
++{
++  va_list ap; double s = 0; int i;
++  va_start(ap, nint);
++  for (i = 0; i < nint; i++) s += va_arg(ap, int);
++  { F2 x = va_arg(ap, F2); s += x.a * 1 + x.b * 2; }
++  { F3 x = va_arg(ap, F3); s += x.a * 3 + x.b * 4 + x.c * 5; }
++  { F4 x = va_arg(ap, F4); s += x.a * 6 + x.b * 7 + x.c * 8 + x.d * 9; }
++  { D2 x = va_arg(ap, D2); s += x.a * 10 + x.b * 11; }
++  { D3 x = va_arg(ap, D3); s += x.a * 12 + x.b * 13 + x.c * 14; }
++  { D4 x = va_arg(ap, D4); s += x.a * 15 + x.b * 16 + x.c * 17 + x.d * 18; }
++  s += va_arg(ap, double) * 19;
++  va_end(ap);
++  return s;
++}
++
++static ffi_type *mk(ffi_type *el, int n, ffi_type *t, ffi_type **e)
++{
++  int i;
++  for (i = 0; i < n; i++) e[i] = el;
++  e[n] = NULL;
++  t->size = 0; t->alignment = 0; t->type = FFI_TYPE_STRUCT; t->elements = e;
++  return t;
++}
++
++static F2 f2 = {1, 2}; static F3 f3 = {3, 4, 5}; static F4 f4 = {6, 7, 8, 9};
++static D2 d2 = {10, 11}; static D3 d3 = {12, 13, 14}; static D4 d4 = {15, 16, 17, 18};
++static double dd = 19;
++
++
++/* closure: same signature, implemented via libffi */
++static void cls_fn(ffi_cif *cif, void *ret, void **args, void *ud)
++{
++  int nint = *(int *)args[0], i; double s = 0; F2 *x2; F3 *x3; F4 *x4; D2 *y2; D3 *y3; D4 *y4;
++  (void)ud; (void)cif;
++  for (i = 0; i < nint; i++) s += *(int *)args[1 + i];
++  x2 = args[1 + nint]; x3 = args[2 + nint]; x4 = args[3 + nint];
++  y2 = args[4 + nint]; y3 = args[5 + nint]; y4 = args[6 + nint];
++  s += x2->a * 1 + x2->b * 2;
++  s += x3->a * 3 + x3->b * 4 + x3->c * 5;
++  s += x4->a * 6 + x4->b * 7 + x4->c * 8 + x4->d * 9;
++  s += y2->a * 10 + y2->b * 11;
++  s += y3->a * 12 + y3->b * 13 + y3->c * 14;
++  s += y4->a * 15 + y4->b * 16 + y4->c * 17 + y4->d * 18;
++  s += *(double *)args[7 + nint] * 19;
++  *(double *)ret = s;
++}
++
++int main(void)
++{
++  ffi_type tf2, tf3, tf4, td2, td3, td4;
++  ffi_type *ef2[3], *ef3[4], *ef4[5], *ed2[3], *ed3[4], *ed4[5];
++  int nint;
++  mk(&ffi_type_float, 2, &tf2, ef2); mk(&ffi_type_float, 3, &tf3, ef3);
++  mk(&ffi_type_float, 4, &tf4, ef4); mk(&ffi_type_double, 2, &td2, ed2);
++  mk(&ffi_type_double, 3, &td3, ed3); mk(&ffi_type_double, 4, &td4, ed4);
++
++  for (nint = 0; nint <= 7; nint++)
++    {
++      ffi_cif cif; ffi_type *at[16]; void *av[16]; int iv[8] = {1,2,3,4,5,6,7,8};
++      int k = 0, i; double r = 0, want;
++      at[k] = &ffi_type_sint; av[k++] = &nint;
++      for (i = 0; i < nint; i++) { at[k] = &ffi_type_sint; av[k++] = &iv[i]; }
++      at[k] = &tf2; av[k++] = &f2; at[k] = &tf3; av[k++] = &f3; at[k] = &tf4; av[k++] = &f4;
++      at[k] = &td2; av[k++] = &d2; at[k] = &td3; av[k++] = &d3; at[k] = &td4; av[k++] = &d4;
++      at[k] = &ffi_type_double; av[k++] = &dd;
++      switch (nint) {
++        case 0: want = callee(0, f2, f3, f4, d2, d3, d4, dd); break;
++        case 1: want = callee(1, 1, f2, f3, f4, d2, d3, d4, dd); break;
++        case 2: want = callee(2, 1,2, f2, f3, f4, d2, d3, d4, dd); break;
++        case 3: want = callee(3, 1,2,3, f2, f3, f4, d2, d3, d4, dd); break;
++        case 4: want = callee(4, 1,2,3,4, f2, f3, f4, d2, d3, d4, dd); break;
++        case 5: want = callee(5, 1,2,3,4,5, f2, f3, f4, d2, d3, d4, dd); break;
++        case 6: want = callee(6, 1,2,3,4,5,6, f2, f3, f4, d2, d3, d4, dd); break;
++        default: want = callee(7, 1,2,3,4,5,6,7, f2, f3, f4, d2, d3, d4, dd); break;
++      }
++      CHK(ffi_prep_cif_var(&cif, FFI_DEFAULT_ABI, 1, k, &ffi_type_double, at) == FFI_OK);
++      ffi_call(&cif, FFI_FN(callee), &r, av);
++      printf("call nint=%d got %g want %g\n", nint, r, want);
++      CHK(r == want);
++
++      {
++        void *code; ffi_closure *cl = ffi_closure_alloc(sizeof(ffi_closure), &code);
++        double (*fp)(int, ...) = (double (*)(int, ...))code; double got;
++        CHK(ffi_prep_closure_loc(cl, &cif, cls_fn, NULL, code) == FFI_OK);
++        switch (nint) {
++          case 0: got = fp(0, f2, f3, f4, d2, d3, d4, dd); break;
++          case 1: got = fp(1, 1, f2, f3, f4, d2, d3, d4, dd); break;
++          case 2: got = fp(2, 1,2, f2, f3, f4, d2, d3, d4, dd); break;
++          case 3: got = fp(3, 1,2,3, f2, f3, f4, d2, d3, d4, dd); break;
++          case 4: got = fp(4, 1,2,3,4, f2, f3, f4, d2, d3, d4, dd); break;
++          case 5: got = fp(5, 1,2,3,4,5, f2, f3, f4, d2, d3, d4, dd); break;
++          case 6: got = fp(6, 1,2,3,4,5,6, f2, f3, f4, d2, d3, d4, dd); break;
++          default: got = fp(7, 1,2,3,4,5,6,7, f2, f3, f4, d2, d3, d4, dd); break;
++        }
++        printf("closure nint=%d got %g want %g\n", nint, got, want);
++        CHK(got == want);
++        ffi_closure_free(cl);
++      }
++    }
++  CHECK(fails == 0);
++  exit(0);
++}
+-- 
+2.56.1
+

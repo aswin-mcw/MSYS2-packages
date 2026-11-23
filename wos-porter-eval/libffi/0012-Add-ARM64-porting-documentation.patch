@@ -1,0 +1,193 @@
+From 1b0a5a54b48094be78872755d2e692a007e4d244 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:58:16 +0530
+Subject: [PATCH 12/12] Add ARM64 porting documentation
+
+---
+ ARM64-PORT.md | 174 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 174 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..17d5a3e
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,174 @@
++# Windows ARM64 Port
++
++This branch, `arm64-port`, makes libffi 3.8.0 (the MSYS2 recipe tree) build and pass its tests natively on Windows ARM64 (`aarch64`) with MSVC. The work was done natively on a Snapdragon X Elite host.
++
++The sources already supported Windows ARM64 (`src/aarch64/win64_armasm.S` for MSVC, and `sysv.S` with the MSYS2 Cygwin patch). Most of the port fixes ABI bugs in that code and makes the stale MSBuild project build again.
++
++## Summary of Changes
++### Build System
++- `msvc_build/aarch64/Ffi_staticLib.vcxproj`:
++  - toolset is now `$(DefaultPlatformToolset)` (v143 fallback) and the SDK is `10.0`
++  - adds `tramp.c`, `raw_api.c` and `java_raw_api.c`
++  - removes the separate `dlmalloc.c`, which `closures.c` already includes
++  - fixes the `ffi_cfi.h`/`ffi_common.h` paths
++  - the armasm64 step now writes `$(IntDir)win64_armasm.obj`; an escaped `/I"src\"` quote had swallowed `-o`
++  - uses `FFI_STATIC_BUILD` instead of `FFI_BUILDING_DLL`, and Debug no longer defines `NDEBUG`
++- `msvc_build/aarch64/Ffi_staticLib.sln`: removes the x86/x64 solution platforms that were mapped onto ARM64.
++- `msvc_build/aarch64/aarch64_include/{ffi.h,fficonfig.h}`: regenerated from a 3.8.0 configure run. The old ones were from 3.3-rc0, so `FFI_TYPE_VECTOR` and `FFI_TYPE_*INT128` were missing.
++- `include/ffi_common.h`: `FFI_ALIGN_DOWN` masks with `~(a - 1)` instead of `-a`. The old form triggered C4146, which `/sdl` turns into an error.
++- `testsuite/Makefile.am`, `testsuite/Makefile.in`: list the two new tests.
++
++### Source Code
++- ABI fixes:
++  - `src/aarch64/win64_armasm.S`: `extend_hfa_type` loaded the 3rd and 4th vectors of an HVA from offset 16 instead of 32. As a result, MSVC `ffi_call` passed the wrong values for HVA3/HVA4 arguments.
++  - `src/aarch64/ffi.c`, Windows ARM64 variadic calls: these use no FP/SIMD registers and treat HFAs/HVAs as plain composites, which means:
++    - pack up to 16 bytes into X registers
++    - pass larger ones by reference
++    - split them between x7 and the stack when they don't fit
++  - libffi instead gave each HFA member its own X register. A variadic call with an HFA argument crashed (0xC0000005); both `ffi_call` and closures are fixed.
++- Platform guards:
++  - `src/aarch64/ffi.c`: `FlushInstructionCache` is used for every Windows compiler (MSVC, mingw GCC/clang, Cygwin). libgcc's `__clear_cache` reads `CTR_EL0`, which traps in user mode.
++  - `src/dlmalloc.c`: does not redeclare `_InterlockedCompareExchange`/`_InterlockedExchange` on `_M_ARM64`, because they are intrinsics there.
++- Tests:
++  - `testsuite/libffi.call/ffitest.h`: `PRIuPTR` is `"llu"` on 64-bit MSVC.
++  - New `testsuite/libffi.call/va_hfa.c`: variadic float/double HFAs of every size after 0-7 integer args, for both `ffi_call` and closures. It is an expected failure on aarch64 Cygwin; see Limitations.
++  - New `testsuite/libffi.call/hva_neon.c`: HVAs of 2-4 `float32x4_t` for both `ffi_call` and closures. This is the regression test for the armasm fix.
++
++### CI/CD
++None. The tree has no CI configuration.
++
++### New Files
++- `testsuite/libffi.call/va_hfa.c`
++- `testsuite/libffi.call/hva_neon.c`
++- `benchmarks/base_bench_win_arm.json`, `benchmarks/base_bench_win_arm.meta.json`
++
++## Build Steps (ARM64)
++Prerequisites:
++- Visual Studio 2022 or later with the MSVC ARM64 build tools and the Windows 11 SDK (tested with VS 18, MSVC 14.51, v145)
++- MSYS2 with `make` and autotools, for the autotools route
++
++### Build
++Autotools + msvcc.sh produces `libffi-8.dll` and `libffi-8.lib`. Run it from an MSYS2 bash started inside `vcvarsarm64.bat`, with `MSYS2_PATH_TYPE=inherit`:
++```sh
++mkdir build-arm64 && cd build-arm64
++/path/to/libffi/configure --host=aarch64-w64-mingw32 \
++  CC="/path/to/libffi/msvcc.sh -marm64" CXX="/path/to/libffi/msvcc.sh -marm64" \
++  CCAS="/path/to/libffi/msvcc.sh -marm64" LD=link CPPFLAGS="-DFFI_BUILDING_DLL" \
++  CPP="cl -nologo -EP" CXXCPP="cl -nologo -EP" --enable-shared --enable-static
++make -j4
++```
++MSBuild produces the static `Ffi_staticLib_arm64.lib`. Consumers must define `FFI_STATIC_BUILD`.
++```powershell
++& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\arm64\MSBuild.exe" msvc_build\aarch64\Ffi_staticLib.sln /t:Rebuild /p:Configuration=Release /p:Platform=ARM64
++```
++Build output:
++- `build-arm64/.libs/libffi-8.dll` and `libffi-8.lib`
++- `msvc_build/aarch64/ARM64/<Config>/Ffi_staticLib_arm64.lib`, or the `/p:OutDir` you pass
++
++### Run Tests
++DejaGnu is not available for MSVC on this host, so the testsuite was driven by a Python runner. For each test it:
++- follows `dg-do run`/`dg-output`/`dg-options`/`dg-skip-if`
++- compiles with `cl -nologo -W3 -MD` and the per-suite flags from the `.exp` files
++- runs the test and checks the exit code and the `dg-output` regex
++
++With DejaGnu available, the equivalent is:
++```sh
++make check RUNTESTFLAGS="call.exp closure.exp bhaible.exp"
++```
++Expected: 345 passed, 0 failed, 42 unsupported.
++
++### Run Benchmarks
++The microbenchmark is a small `ffi_call`/closure loop. Build it with `cl -O2 -MD`; it is not part of the tree. Results are in `benchmarks/base_bench_win_arm.json`, and the commands are recorded in `base_bench_win_arm.meta.json`.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon X Elite X1E80100, Windows 11 26100)
++- **Executed**: Yes
++- **Against `libffi-8.dll`**: 345 passed, 0 failed, 42 unsupported
++
++| Suite | Passed | Failed | Unsupported |
++|---|---|---|---|
++| libffi.call | 85 | 0 | 0 |
++| libffi.closures (incl. `unwindtest*.cc`) | 99 | 0 | 0 |
++| libffi.bhaible (81 + 80 builds) | 161 | 0 | 0 |
++| libffi.threads | 0 | 0 | 1 (no pthreads under MSVC, as in `threads.exp`) |
++| libffi.complex | 0 | 0 | 29 (no complex type on `_WIN32`) |
++| libffi.go | 0 | 0 | 2 (no Go closures; x18 is the TEB) |
++| libffi.vector | 0 | 0 | 10 (the GCC `vector_size` probe fails under cl, as `vector.exp` intends) |
++
++- The same 345/0/42 result holds against the Release `Ffi_staticLib_arm64.lib`.
++- All test executables were checked with `dumpbin`: 345/345 are `AA64`.
++- The new tests (`va_hfa`, `hva_neon`) were checked against the unfixed code:
++  - `va_hfa` crashed with 0xC0000005.
++  - `hva_neon` returned 140/308 instead of 188/420 for HVA3/HVA4.
++
++## Test Fixes Applied
++- `3b7620c`: `PRIuPTR` for 64-bit MSVC.
++- No test needed a code workaround. The library bugs above were fixed in `32d1d61` and `c7b5f6e`.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.json`
++- **Metadata**: `benchmarks/base_bench_win_arm.meta.json`
++- **Format**: JSON. Each value is the median of 7 runs, in ns/call.
++- **Executed on**: native ARM64
++
++The numbers were recorded at `007b0e3`, before the variadic fix. That fix changes only `FFI_WIN64` variadic argument marshalling.
++
++| Benchmark | DLL | Static |
++|---|---|---|
++| direct call int(int,int) | 0.885 | 0.882 |
++| ffi_call int(int,int) | 10.05 | 9.91 |
++| ffi_call double(4 x double) | 21.31 | 20.27 |
++| ffi_call 8 integer args | 24.33 | 24.83 |
++| ffi_call 24-byte struct | 14.01 | 13.89 |
++| closure int(int,int) | 7.72 | 7.67 |
++| closure double(4 x double) | 19.39 | 18.55 |
++| ffi_prep_cif 2 args | 10.32 | 10.08 |
++| ffi_closure_alloc + free | 65.90 | 64.52 |
++
++## NEON Optimizations
++Phase 7 was skipped because WOS_SKIP_OPTIMIZE was set. libffi also has no SIMD hot paths; its only vector code is the HFA/HVA register marshalling in `win64_armasm.S`.
++
++## ARM64 vs x64 Performance Comparison
++No x64 reference was supplied, so no differential comparison was made.
++
++## Architecture Verification
++All binaries were checked with `dumpbin /HEADERS` (MSVC 14.51 HostARM64):
++
++| Binary | Machine | Size |
++|---|---|---|
++| `build-arm64/.libs/libffi-8.dll` | AA64 (ARM64) | 33,280 bytes |
++| `build-arm64/.libs/libffi-8.lib` (import lib) | 3 objects and 41 imports, all AA64 | - |
++| `Ffi_staticLib_arm64.lib` Release | 8/8 objects AA64 | - |
++| `Ffi_staticLib_arm64.lib` Debug | 8/8 objects AA64 | - |
++| Test executables (dll-arm64) | 345/345 AA64 | - |
++| `ffibench_dll.exe`, `ffibench_static.exe` | AA64 | - |
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native. There are no x64 binary dependencies and no kernel code.
++- **AppReady stages reached**:
++  - Assess: done
++  - Build: done
++  - Deploy: not applicable (library)
++  - Optimize: skipped (WOS_SKIP_OPTIMIZE)
++- **Dependencies**: none at runtime. The MSVC toolset and Windows SDK are native on ARM64. MSYS2 bash/make (x64, emulated) is only used to drive the build.
++- **Blockers requiring App Assure**: none.
++
++## Limitations & Known Issues
++- [attempted-failed] aarch64-pc-cygwin GCC 17 does not follow the Windows variadic ABI for HFAs, so `va_hfa` is marked xfail on `aarch64*-*-cygwin*` and `aarch64*-*-msys*`.
++  - **What was done**: libffi was cross-built with `configure --host=aarch64-pc-cygwin --disable-exec-static-tramp`, and the tests were run natively against the aarch64 `msys-2.0.dll`.
++  - **What still passes**: `hva_neon` and `va_struct1` pass with correct output. `va_1` and `struct10` exit 0, but they print nothing, so that is weaker evidence. HFAs of 16 bytes or less match GCC; a small `ffi_call` test got 506, the same as GCC.
++  - **What fails**: `va_hfa` crashes.
++  - **Cause 1, large HFAs**: `objdump` shows that GCC passes a 24-byte double HFA by value in x4-x6, where the ABI passes it by reference.
++  - **Cause 2, split HFAs**: a pure-GCC program, with no libffi involved, gets 51 instead of 106 when an HFA is split between x7 and the stack.
++  - **Repro**: `C:\wos-eval\work\libffi-scratch\vahfa\purec.c`. This needs a fix in the compiler.
++- [attempted-failed] `libffi.closures/unwindtest_ffi_call.cc` fails with 0xC0000409 only when the test is built with `-O2 -EHsc` and statically linked. It is not ARM64-specific: it fails the same way on x64.
++  - `/EHsc` lets MSVC assume `extern "C"` functions never throw. With `/EHs` instead, the same build passes.
++  - It passes at the default optimisation level that `libffi.exp` uses for MSVC.
++- [attempted-failed] The autotools + msvcc.sh build does not produce a separate static `libffi.lib`. libtool names the import library and the static library the same, so only `libffi_convenience.lib` holds the static objects. The x64 build behaves the same way (`build-x64/.libs`). The MSBuild project provides the static library instead.
++- Design notes, not open work:
++  - The Cygwin `sysv.S` has DWARF CFI but no `.seh_*` unwind directives.
++  - The armasm `ffi_call_SYSV` restores `sp` from the frame rather than from a saved slot.
++  - Neither causes a test failure.
++
++## Reverting / Coexistence
++The x86/x64 sources and builds are unchanged, apart from the shared `FFI_ALIGN_DOWN` macro, which gives the same result for power-of-two alignments. To build x64, use `msvcc.sh -m64`, or switch back to `main`.
+-- 
+2.56.1
+

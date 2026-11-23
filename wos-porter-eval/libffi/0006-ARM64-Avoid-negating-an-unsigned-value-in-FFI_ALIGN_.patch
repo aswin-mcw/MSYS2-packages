@@ -1,0 +1,30 @@
+From 07e66430da1e6dd9c93f13a8668620026f51d656 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:53 +0530
+Subject: [PATCH 06/12] ARM64: Avoid negating an unsigned value in
+ FFI_ALIGN_DOWN
+
+-a on a size_t triggers C4146, which /sdl (SDLCheck in the msvc_build
+project) turns into an error when src/aarch64/ffi.c is compiled.  Mask
+with ~(a - 1) instead, which is equivalent for power-of-two alignments,
+and parenthesize the macro argument.
+---
+ include/ffi_common.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/ffi_common.h b/include/ffi_common.h
+index e4ed228..bd1f837 100644
+--- a/include/ffi_common.h
++++ b/include/ffi_common.h
+@@ -117,7 +117,7 @@ void ffi_type_test(ffi_type *a, const char *file, int line);
+ /* v cast to size_t and aligned up to a multiple of a */
+ #define FFI_ALIGN(v, a)  (((((size_t) (v))-1) | ((a)-1))+1)
+ /* v cast to size_t and aligned down to a multiple of a */
+-#define FFI_ALIGN_DOWN(v, a) (((size_t) (v)) & -a)
++#define FFI_ALIGN_DOWN(v, a) (((size_t) (v)) & ~((size_t) (a) - 1))
+ 
+ /* Perform machine dependent cif processing */
+ ffi_status ffi_prep_cif_machdep(ffi_cif *cif);
+-- 
+2.56.1
+

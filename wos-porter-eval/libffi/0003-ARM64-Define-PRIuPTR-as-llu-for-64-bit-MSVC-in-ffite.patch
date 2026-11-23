@@ -1,0 +1,31 @@
+From 3b7620c9641b7a2d72a4ee6d4d9ce7e2e8e4a079 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:11 +0530
+Subject: [PATCH 03/12] ARM64: Define PRIuPTR as llu for 64-bit MSVC in
+ ffitest.h
+
+uintptr_t is 64 bits on LLP64 Windows (x64 and ARM64).
+---
+ testsuite/libffi.call/ffitest.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/testsuite/libffi.call/ffitest.h b/testsuite/libffi.call/ffitest.h
+index a7c634b..7a92f7f 100644
+--- a/testsuite/libffi.call/ffitest.h
++++ b/testsuite/libffi.call/ffitest.h
+@@ -153,7 +153,12 @@
+ /* MSVC kludge.  */
+ #if defined _MSC_VER
+ #if !defined(__cplusplus) || defined(__STDC_FORMAT_MACROS)
++#if defined(_WIN64)
++/* uintptr_t is 64-bit on x64/ARM64 (LLP64); matches MSVC <inttypes.h>.  */
++#define PRIuPTR "llu"
++#else
+ #define PRIuPTR "lu"
++#endif
+ #define PRIu8 "u"
+ #define PRId8 "d"
+ #define PRIu64 "I64u"
+-- 
+2.56.1
+

@@ -1,0 +1,202 @@
+From 5ed0bb1a8d6513f151bec35c1d5195cbc4315d2d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:21:17 +0530
+Subject: [PATCH 4/4] Add ARM64 porting documentation
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ ARM64-PORT.md | 182 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 182 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..5b2410e
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,182 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) support for GNU less 710, as shipped in the
++MSYS2 (`usr/bin`) layer of Git for Windows, on branch `arm64-port`.
++
++The shipped artifact is an MSYS (Cygwin ABI) program, so its ARM64 counterpart
++is built for `aarch64-pc-cygwin` and links the ARM64 `msys-2.0.dll`,
++`msys-ncursesw6.dll` and `msys-pcre2-8-0.dll`. The upstream native-Windows
++MSVC build (`Makefile.wnm`) was also built and checked for ARM64.
++
++## Summary of Changes
++### Build System
++- `Makefile.in`: the `check:` target now passes `CC="${CC}" LDFLAGS="${LDFLAGS}"`
++  to the `lesstest` sub-make. Without this, a cross build (`--host=aarch64-pc-cygwin`)
++  compiled `lesstest`/`lt_screen` with the host x64 gcc while `less_t.exe` was
++  ARM64. Native builds behave the same as before (commit `f485625`).
++- `Makefile.wng`: `MINGW_ROOT_PATH ?=` so an ARM64 mingw prefix (for example
++  `/clangarm64`) can be supplied. The default is unchanged (commit `f485625`).
++
++### Source Code
++- No changes to less itself. There is no SIMD, inline asm, x86 intrinsics or
++  arch `#ifdef` in the code. The `_WIN64` `ssize_t` typedef in `lang.h` is
++  correct for MSVC ARM64. The code was also audited for plain-`char`
++  signedness assumptions (AArch64 GCC uses unsigned `char`) and none were found.
++- `lesstest/pipeline.c` (test harness only): under `#ifdef __CYGWIN__`, PATH is
++  forwarded to the `less_t`/`lt_screen` children. Without it the Windows loader
++  cannot find `msys-2.0.dll` and every lesstest script fails. The x64 MSYS
++  build fails the same way, so this is a Windows/MSYS harness fix that `make check`
++  needs, not an ARM64-specific change (commit `171d2fd`).
++
++### CI/CD
++- `.github/workflows/main.yml`: adds two MSVC ARM64 legs (dist and git sources)
++  on `windows-11-arm`, using `Launch-VsDevShell.ps1 -Arch arm64 -HostArch arm64`.
++  The existing amd64 legs are unchanged, but their check names gain an `amd64` suffix.
++
++### New Files
++- `benchmarks/run_bench.sh`, `benchmarks/base_bench_win_arm.txt`,
++  `benchmarks/base_bench_win_arm.meta.json` (commit `a094bfd`).
++- No vendored SIMD translation libraries.
++
++## Build Steps (ARM64)
++Prerequisites:
++- MSYS2 with the `aarch64-pc-cygwin` cross toolchain (`aarch64-pc-cygwin-gcc`
++  17.0.0) and a sysroot at `/usr/aarch64-pc-cygwin` containing ARM64
++  msys2-runtime, ncurses and pcre2 (headers, import libs and DLLs).
++- `perl`, `make` and `groff` in the MSYS2 shell.
++- For the MSVC build: Visual Studio 2022+ with the **MSVC ARM64 build tools**
++  and the Windows 11 SDK.
++
++### Build (MSYS layer, aarch64-pc-cygwin; same as the MSYS2 PKGBUILD cross arm)
++```sh
++# MSYSTEM=MSYS /c/msys64/usr/bin/bash -l
++cd /c/wos-eval/work/less
++make -f Makefile.aut distfiles
++./configure --build=x86_64-pc-msys --host=aarch64-pc-cygwin --prefix=/usr --sysconfdir=/etc \
++    --with-regex=pcre2 CPPFLAGS=-I/usr/aarch64-pc-cygwin/usr/include LDFLAGS=-L/usr/aarch64-pc-cygwin/usr/lib
++make
++```
++Build output: `less.exe`, `lessecho.exe` in the repo root. Configure chose
++`LIBS = -lncursesw -lpcre2-8`. v710's `all:` target builds no `lesskey`.
++
++### Build (native Windows, MSVC ARM64)
++```bat
++call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsarm64.bat"
++nmake -nologo -f Makefile.wnm generated all
++```
++(`generated` can be skipped when `funcs.h`/`help.c`/`lessmsg.inc` already exist
++from `distfiles`.) Output: `less.exe`.
++
++### Run Tests
++```sh
++# MSYSTEM=MSYS /c/msys64/usr/bin/bash -l   (sysroot bin APPENDED to PATH, not prepended)
++cd /c/wos-eval/work/less
++export PATH=$PATH:/usr/aarch64-pc-cygwin/usr/bin
++make check CC=aarch64-pc-cygwin-gcc VERBOSE=1
++```
++Expected: `RAN  19 tests with 0 errors`.
++
++### Run Benchmarks
++```bat
++C:\msys64\usr\aarch64-pc-cygwin\usr\bin\bash.exe -c "export PATH=/usr/aarch64-pc-cygwin/usr/bin:/usr/bin; cd /c/wos-eval/work; sh less/benchmarks/run_bench.sh arm64-msys /c/wos-eval/work/less/less.exe /c/wos-eval/work/less/less_t.exe /c/wos-eval/work/less-bench-data 7"
++```
++Results are in `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon X Elite X1E80100, Windows 11 26100)
++- **Executed**: Yes
++- **Upstream suite (`make check`, lesstest)**: Passed 19, Failed 0, Skipped 0.
++  The tests are chinese1, colorbars, filter1, github216, github265, github329,
++  hdr-unicode, hdr-unicode1, osc8-hilite, osc8, proc-special, search-hist,
++  seq200, subsearch, table-50x200, utf8-2.txt, utf8-cmds.txt, version.c and
++  wordwrap. All PASS (`RAN  19 tests with 0 errors`).
++- **Sanity checks**: 20 passed, 0 failed.
++  - Six checks for each of the MSYS and MSVC ARM64 builds (12 results):
++    - README round-trip with `cmp`
++    - `--version` reports PCRE2
++    - 200k-line non-tty paging
++    - `-F` line count
++    - a PCRE2 `+/` search
++    - stdin pipe round-trip
++  - Eight `lessecho` cases, byte-identical to x64 `lessecho`.
++
++## Test Fixes Applied
++- `171d2fd` `lesstest/pipeline.c`: forward PATH to child processes on Cygwin/MSYS.
++  Before the fix, 19/19 tests failed with "error while loading shared libraries"
++  on both ARM64 and x64 MSYS. With it, both pass 19/19.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt` (committed on `arm64-port`)
++- **Metadata**: `benchmarks/base_bench_win_arm.meta.json`
++- **Format**: txt
++- **Executed on**: native ARM64 host. The x64 MSYS build was run under Prism
++  emulation for reference.
++
++| Case (median ms, lower is better) | ARM64 MSYS (native) | x64 MSYS (emulated) | Speedup | ARM64 MSVC |
++|---|---|---|---|---|
++| pipe_cat (non-tty copy of 62 MB) | 528 | 901 | 1.71x | 603 |
++| search_fwd (PCRE2 search to EOF) | 1222 | 1864 | 1.53x | - |
++| search_back (`G` then backward search) | 1452 | 1840 | 1.27x | - |
++| linenum_end (`-N G`) | 300 | 568 | 1.89x | - |
++
++## NEON Optimizations
++Phase 7 was skipped because WOS_SKIP_OPTIMIZE was set by the user. It would
++also have had nothing to do: less has no SIMD or hot vectorisable kernels.
++Regex matching is delegated to PCRE2, which is built with `--disable-jit` for
++aarch64.
++
++## ARM64 vs x64 Performance Comparison
++No native x64 benchmark reference was supplied, so a differential comparison
++does not apply. The table above compares against the x64 MSYS build running
++under emulation on the same ARM64 machine. That is the configuration Git for
++Windows users on ARM64 get today with the x64 MSYS layer.
++
++## Architecture Verification
++All built binaries were checked with `dumpbin -HEADERS`:
++
++| Binary | Machine | Size (bytes) |
++|---|---|---|
++| less.exe (aarch64-pc-cygwin) | AA64 machine (ARM64) | 1,350,318 (unstripped, -g) |
++| lessecho.exe | AA64 machine (ARM64) | 38,344 |
++| less_t.exe (test build) | AA64 machine (ARM64) | 1,356,063 |
++| lessecho_t.exe (test build) | AA64 machine (ARM64) | 38,344 |
++| lesstest/lesstest | AA64 machine (ARM64) | 55,061 |
++| lesstest/lt_screen | AA64 machine (ARM64) | 39,154 |
++| less.exe (MSVC, Makefile.wnm) | AA64 machine (ARM64) | 505,856 |
++
++`less.exe` (MSYS) imports msys-2.0.dll, msys-ncursesw6.dll, msys-pcre2-8-0.dll
++and KERNEL32.dll. The ARM64 versions of all three msys DLLs in the sysroot are
++AA64.
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native (no ARM64EC needed)
++- **AppReady stages reached**: Assess done, Build done, Test done; Optimize n/a (skipped, no SIMD hot code)
++- **WoA Ecosystem Dashboard status**:
++
++| Dependency | Version | Dashboard status | Citation |
++|---|---|---|---|
++| msys2-runtime | 3.6.x aarch64 | unknown (not listed); built from source | MSYS2-packages `msys2-runtime-aarch64*` |
++| ncurses | 6.6 | unknown; built from source | MSYS2-packages `ncurses/PKGBUILD` |
++| pcre2 | 10.49 | unknown; built from source (JIT off) | MSYS2-packages `pcre2/PKGBUILD` |
++
++- **Emulation vs native**: less.exe, lessecho.exe and all three runtime DLLs are native ARM64. Nothing is emulated and nothing blocks.
++- **Blockers requiring Microsoft App Assure**: None.
++
++## Limitations & Known Issues
++None. All reachable limitations were resolved.
++
++Design and environment notes (not unattempted work):
++- `lesskey.exe` is not built. less 710's `Makefile.in` `all:` target has none, the same as x64.
++- In a mixed process tree, where the x64 MSYS bash launches the ARM64 MSYS
++  `less`, ARM64 ncurses cannot locate terminfo, because the x64 runtime treats
++  the ARM64 program as a native exe and converts paths. Interactive less then
++  warns "terminal is not fully functional". Started from an ARM64 shell (a pure
++  ARM64 tree, as in an all-ARM64 Git for Windows install) it works correctly.
++  This is a property of the runtime pairing, not of less.
++- MSVC `less.exe` with stdout redirected to `NUL` waits for keyboard input,
++  because the MSVC CRT's `_isatty` reports the NUL character device as a tty.
++  This is not ARM64-specific.
++
++## Reverting / Coexistence
++The x64 build is unchanged. To build x64, switch back to `main` or run plain
++`./configure` (MSYS) or `-Arch amd64` (MSVC).
+-- 
+2.56.1
+

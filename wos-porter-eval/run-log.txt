@@ -1,0 +1,25 @@
+# WoS Porter run log (agent per package, in-session, WOS_SKIP_OPTIMIZE=1)
+2026-11-22T00:43:15+05:30 START xz
+2026-11-22T00:43:15+05:30 START zstd
+2026-11-22T00:43:15+05:30 START less
+2026-11-22T00:43:15+05:30 START dash
+2026-11-22T01:15:34+05:30 END dash (target aarch64-pc-cygwin GCC; commits 047daaf 84c1485 7b83589; 45/45 own tests; benchmarks added)
+2026-11-22T01:15:34+05:30 START util-linux
+2026-11-22T01:22:00+05:30 END less (4 commits f485625 171d2fd a094bfd 5ed0bb1; make check 19/19; also MSVC build; CI workflow edited)
+2026-11-22T01:22:00+05:30 START vim
+2026-11-22T01:35:16+05:30 END zstd (MSVC target! commits 9110a4a 1394ced 1eb316b e57bcdc; 47/47; ~52 min)
+2026-11-22T01:35:16+05:30 START tar
+2026-11-23T00:48:14+05:30 RATE-LIMIT stop ~02:00 22 Nov (xz util-linux vim tar interrupted); not resumed until now
+2026-11-23T00:48:14+05:30 RESUME xz util-linux vim tar
+2026-11-23T01:09:50+05:30 END xz (e18e5ff 6eb03d8 0dada91; 22/22; ~45 min incl. limit gap)
+2026-11-23T01:09:58+05:30 START pcre2 (opus medium)
+2026-11-23T01:14:04+05:30 END tar (b1377ab 0d88726 eac8ed6; 198/10/36 same as x64)
+2026-11-23T01:14:04+05:30 START libffi (opus medium)
+2026-11-23T01:26:50+05:30 END pcre2 (MSVC target; 399d4a9 bc3047e; ctest 4/4; opus medium)
+2026-11-23T01:26:50+05:30 START mintty (opus medium)
+2026-11-23T01:50:38+05:30 END util-linux (03a6252 100ca63 0b98b5f c307b28; 84/10/2/217 same as x86_64)
+2026-11-23T01:50:46+05:30 START winpty (opus medium)
+2026-11-23T01:58:56+05:30 END libffi (12 commits; 345/0/42 MSVC)
+2026-11-23T01:58:56+05:30 START git-flow (opus medium)
+2026-11-23T09:45:59+05:30 RATE-LIMIT ~02:00-05:40 23 Nov; RESUME vim mintty winpty git-flow at 09:46
+2026-11-23T09:46:31+05:30 STOPPED by user request: vim mintty winpty git-flow (partial, not counted); 15 never started

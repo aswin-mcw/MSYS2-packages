@@ -1,0 +1,55 @@
+From 03a6252f3eb1df9470b761dc5148a1b16452e6b9 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:44:58 +0530
+Subject: [PATCH 1/4] Link through libtool with $(LTLIBINTL), not $(LIBINTL)
+
+configure.ac put $LIBINTL in the global LIBS, but every target is linked
+through libtool. When gettext's lib-link macros find libintl outside the
+default prefix (as in an aarch64-pc-cygwin cross build, where the
+libintl prefix is the sysroot), LIBINTL is the absolute path
+.../libintl.dll.a. libtool --mode=link for a shared library treats an
+absolute *.a argument as a static archive and only keeps it when
+deplibs_check_method is pass_all or match_pattern; Cygwin's file_magic
+method drops it with "Trying to link with static lib archive", and
+libblkid.la then fails to link with undefined libintl_gettext.
+
+LTLIBINTL is the form gettext provides for libtool (-L<dir> -lintl), and
+it is what Makefile.am already uses for LDADD. Natively it is -lintl or
+empty, so native builds are unchanged. The generated configure gets the
+same one-line change.
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ configure    | 2 +-
+ configure.ac | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/configure b/configure
+index 3ceee78..e9784c5 100644
+--- a/configure
++++ b/configure
+@@ -45278,7 +45278,7 @@ printf "%s\n" "$as_me: setting link_all_deplibs=unknown for libtool" >&6;}
+ fi
+ 
+ 
+-LIBS="$LIBINTL"
++LIBS="$LTLIBINTL"
+ 
+ 
+ ac_config_headers="$ac_config_headers config.h"
+diff --git a/configure.ac b/configure.ac
+index 6e2b593..1fd7804 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -2943,7 +2943,7 @@ if test "x${build_alias}" != "x${host_alias}"; then
+ fi
+ 
+ 
+-LIBS="$LIBINTL"
++LIBS="$LTLIBINTL"
+ 
+ 
+ AC_CONFIG_HEADERS([config.h])
+-- 
+2.56.1
+

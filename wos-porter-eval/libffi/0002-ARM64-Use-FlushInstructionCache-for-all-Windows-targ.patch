@@ -1,0 +1,65 @@
+From 1397d1f4f923ee103e662a0575c849f3bd9a2466 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:11 +0530
+Subject: [PATCH 02/12] ARM64: Use FlushInstructionCache for all Windows
+ targets
+
+ffi_clear_cache now uses FlushInstructionCache for Cygwin, mingw and
+MSVC alike, since user mode cannot read CTR_EL0 on Windows.  dlmalloc.c
+no longer redeclares the _Interlocked* intrinsics on ARM64, where MSVC
+already declares them.
+---
+ src/aarch64/ffi.c | 8 +++-----
+ src/dlmalloc.c    | 6 +++---
+ 2 files changed, 6 insertions(+), 8 deletions(-)
+
+diff --git a/src/aarch64/ffi.c b/src/aarch64/ffi.c
+index 0b23264..fe2354b 100644
+--- a/src/aarch64/ffi.c
++++ b/src/aarch64/ffi.c
+@@ -86,15 +86,13 @@ ffi_clear_cache (void *start, void *end)
+ {
+ #if defined (__clang__) && defined (__APPLE__)
+   sys_icache_invalidate (start, (char *)end - (char *)start);
+-#elif defined (__CYGWIN__)
+-  /* libgcc's __clear_cache reads CTR_EL0, which Windows does not let
+-     user mode read.  */
++#elif defined (__CYGWIN__) || defined (_WIN32)
++  /* Cygwin, mingw GCC/clang and MSVC: libgcc's __clear_cache reads
++     CTR_EL0, which Windows does not let user mode read.  */
+   FlushInstructionCache (GetCurrentProcess (), start,
+                          (char *)end - (char *)start);
+ #elif defined (__GNUC__)
+   __builtin___clear_cache (start, end);
+-#elif defined (_WIN32)
+-  FlushInstructionCache(GetCurrentProcess(), start, (char*)end - (char*)start);
+ #else
+ #error "Missing builtin to flush instruction cache"
+ #endif
+diff --git a/src/dlmalloc.c b/src/dlmalloc.c
+index 93e8196..83c2a30 100644
+--- a/src/dlmalloc.c
++++ b/src/dlmalloc.c
+@@ -1518,8 +1518,8 @@ extern void*     sbrk(ptrdiff_t);
+ #include <pthread.h>
+ #endif /* USE_RECURSIVE_LOCKS ... */
+ #elif defined(_MSC_VER)
+-#ifndef _M_AMD64
+-/* These are already defined on AMD64 builds */
++#if !defined(_M_AMD64) && !defined(_M_ARM64)
++/* These are already defined on AMD64 and ARM64 builds */
+ #ifdef __cplusplus
+ extern "C" {
+ #endif /* __cplusplus */
+@@ -1528,7 +1528,7 @@ LONG __cdecl _InterlockedExchange(LONG volatile *Target, LONG Value);
+ #ifdef __cplusplus
+ }
+ #endif /* __cplusplus */
+-#endif /* _M_AMD64 */
++#endif /* !_M_AMD64 && !_M_ARM64 */
+ #pragma intrinsic (_InterlockedCompareExchange)
+ #pragma intrinsic (_InterlockedExchange)
+ #define interlockedcompareexchange _InterlockedCompareExchange
+-- 
+2.56.1
+

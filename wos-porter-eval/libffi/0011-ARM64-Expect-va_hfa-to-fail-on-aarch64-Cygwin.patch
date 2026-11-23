@@ -1,0 +1,35 @@
+From 1a964d0cf7d25af13ba32db8db47ccd6d148633d Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:56:33 +0530
+Subject: [PATCH 11/12] ARM64: Expect va_hfa to fail on aarch64 Cygwin
+
+The aarch64-pc-cygwin cross GCC (17) passes a 24-byte double HFA to a
+variadic function by value in x4-x6, where the Windows ARM64 ABI passes
+composites larger than 16 bytes by reference, and its own caller and
+callee disagree when an HFA is split between x7 and the stack.  The
+smaller HFA cases match libffi.  This is a compiler issue, so mark the
+test as an expected failure there.
+---
+ testsuite/libffi.call/va_hfa.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/testsuite/libffi.call/va_hfa.c b/testsuite/libffi.call/va_hfa.c
+index 36f3163..0ac6e8a 100644
+--- a/testsuite/libffi.call/va_hfa.c
++++ b/testsuite/libffi.call/va_hfa.c
+@@ -6,7 +6,11 @@
+    PR:			none.
+    Originator:	none.  */
+ 
+-/* { dg-do run } */
++/* The aarch64-pc-cygwin GCC passes variadic HFAs larger than 16 bytes
++   by value and does not agree with itself on HFAs split between x7 and
++   the stack, so it cannot call or implement this function the way the
++   Windows ABI (and MSVC) does.  */
++/* { dg-do run { xfail aarch64*-*-cygwin* aarch64*-*-msys* } } */
+ 
+ #include "ffitest.h"
+ #include <stdarg.h>
+-- 
+2.56.1
+

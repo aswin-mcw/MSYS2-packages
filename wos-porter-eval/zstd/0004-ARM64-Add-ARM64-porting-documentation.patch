@@ -1,0 +1,207 @@
+From e57bcdc804d68361f1e75d2286448901f376d865 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:34:25 +0530
+Subject: [PATCH 4/4] ARM64: Add ARM64 porting documentation
+
+---
+ ARM64-PORT.md | 188 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 188 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..faa68b1
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,188 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) support for zstd 1.5.7, the source the MSYS2 recipe builds. It is on branch `arm64-port`.
++
++zstd's C library was already mostly ARM64-ready:
++- `lib/common/compiler.h` picks the NEON paths when `_M_ARM64` is defined.
++- The CMake build always defines `ZSTD_DISABLE_ASM` under MSVC, so the x86-64 `huf_decompress_amd64.S` is never compiled for ARM64.
++
++The port fills in three gaps:
++- The Visual Studio solution had no ARM64 platform.
++- Some code paths were guarded only by GCC's `__aarch64__` macro, so MSVC ARM64 lost them. These include prefetch, which compiled to a no-op under MSVC ARM64.
++- There was no Windows ARM64 CI job.
++
++## Summary of Changes
++### Build System
++- `build/VS2010/zstd.sln`: adds the `Debug|ARM64` and `Release|ARM64` solution configurations and their mappings for every project.
++- `build/VS2010/{libzstd,libzstd-dll,zstd,datagen,fullbench,fuzzer}/*.vcxproj`: adds ARM64 `ProjectConfiguration`, property groups and `ItemDefinitionGroup`s, copied from x64 with these exceptions:
++  - no `MachineX86`;
++  - no `OmitFramePointers` (`/Oy`, which is x86-only);
++  - no `EnableEnhancedInstructionSet` (x86 `/arch:`).
++- `build/VS_scripts/build.generic.cmd`: the help text now lists `ARM64` as a platform. The script passes the value through unchanged.
++- `build/cmake`: unchanged. It already works for MSVC ARM64.
++- `build/meson` and `Makefile`: unchanged.
++
++### Source Code
++These guards add MSVC ARM64 paths only. They are additive, and x64, x86, GCC/Clang aarch64 and ARM64EC behave as before.
++- Prefetch: in `lib/common/compiler.h`, an MSVC `_M_ARM64` branch maps `PREFETCH_L1`/`PREFETCH_L2` to the `__prefetch()` intrinsic. Before this they were no-ops on MSVC ARM64. `dumpbin /disasm` of `zstd.dll` shows 719 `prfm` instructions.
++- Prefetch call sites: `lib/compress/zstd_double_fast.c` (2 sites) and `lib/decompress/zstd_decompress_block.c` (`ZSTD_execSequence`) are widened from `__aarch64__` to `__aarch64__ || _M_ARM64`.
++- Endianness: in `lib/common/mem.h`, `MEM_isLittleEndian()` now returns a compile-time constant on MSVC `_M_ARM64`.
++- 64-bit detection: `programs/platform.h` now includes `_M_ARM64` in the `__64BIT__` check. This makes no functional difference on Windows.
++
++### CI/CD
++- `.github/workflows/dev-short-tests.yml`:
++  - New `cmake-visual-2022-arm64` job on `windows-11-arm`. It runs CMake with `-A ARM64` and warnings as errors, checks the PE machine type of `zstd.exe`, then runs ctest.
++  - New `VS 2022 ARM64 Release` entry in the `msbuild-visual-studio` matrix.
++
++### New Files
++- `benchmarks/base_bench_win_arm.txt` and `benchmarks/base_bench_win_arm.meta.json`: the native ARM64 baseline benchmark results.
++- `ARM64-PORT.md`: this document.
++- No SIMD translation libraries were added.
++
++## Build Steps (ARM64)
++Prerequisites: Visual Studio 2022 or newer with the **MSVC ARM64 build tools** (the ARM64-host toolset on a Windows ARM64 machine) and a **Windows 11 SDK**. CMake and Ninja come from the Visual Studio-bundled "C++ CMake tools" component. There are no third-party dependencies, because zlib, lzma and lz4 are OFF, as in the MSYS2 recipe.
++
++### Build
++```bat
++call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsarm64.bat"
++cd /d C:\wos-eval\work\zstd
++
++rem 1. CMake + Ninja (mirrors the MSYS2 recipe: build/cmake, Release, shared-linked programs)
++cmake -S build/cmake -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DZSTD_PROGRAMS_LINK_SHARED=ON -DZSTD_BUILD_TESTS=ON
++cmake --build build-arm64
++
++rem 2. CMake Visual Studio generator, warnings as errors
++cmake -S build/cmake -B build-arm64-vs -G "Visual Studio 18 2026" -A ARM64 -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DZSTD_BUILD_TESTS=ON
++cmake --build build-arm64-vs --config Release -- /m
++
++rem 3. MSBuild VS2010 solution (Release and Debug both build clean with /warnaserror)
++msbuild build\VS2010\zstd.sln /t:Rebuild /p:Platform=ARM64 /p:Configuration=Release /p:PlatformToolset=v145 /m /warnaserror
++```
++On a host with Visual Studio 2022, use `-G "Visual Studio 17 2022"` and `/p:PlatformToolset=v143`.
++
++Build output:
++- `build-arm64\{lib,programs,tests}`
++- `build-arm64-vs\{lib,programs,tests}\Release`
++- `build\VS2010\bin\ARM64_{Release,Debug}`
++
++### Run Tests
++```bat
++ctest --test-dir build-arm64 --output-on-failure -j3 --timeout 1500
++
++rem Upstream visual-runtime-tests equivalent (MSBuild output copied into tests\, Git for Windows sh):
++copy build\VS2010\bin\ARM64_Release\*.exe tests\
++cd tests
++set ZSTD_BIN=./zstd.exe
++set DATAGEN_BIN=./datagen.exe
++"C:\Program Files\Git\bin\sh.exe" -e playTests.sh
++fuzzer.exe -T30s
++..\build-arm64-vs\tests\Release\zstreamtest.exe -T30s
++```
++Expected result: all of the checks above pass with 0 failures. The full table is in the Test Results section below.
++
++### Run Benchmarks
++```bat
++set PATH=%CD%\build-arm64\lib;%PATH%
++build-arm64\tests\datagen.exe -g100MB > datagen_100MB.bin
++tar -cf lib_src.tar -C . lib
++build-arm64\programs\zstd.exe -b1e19 -i1 datagen_100MB.bin
++build-arm64\programs\zstd.exe -b1e19 -i1 lib_src.tar
++build-arm64\programs\zstd.exe -b1e19 -i1 -T0 datagen_100MB.bin
++build-arm64\programs\zstd.exe --ultra -b20e22 -i1 lib_src.tar
++build-arm64\tests\fullbench.exe -i1
++```
++The results are recorded in `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native Windows ARM64 (Snapdragon X Elite X1E80100, Windows 11 build 26100)
++- **Executed**: yes, natively
++- **Passed**: 47 &nbsp;&nbsp; **Failed**: 0 &nbsp;&nbsp; **Skipped**: 0
++
++| Test | Binary | Result |
++|---|---|---|
++| ctest `fullbench` | build-arm64 | Passed (143.0 s) |
++| ctest `zstreamtest` | build-arm64 | Passed (240.1 s) |
++| ctest `fuzzer` (full default length) | build-arm64 | Passed (840.9 s) |
++| `playTests.sh` (run with Git for Windows `sh -e`, as in upstream visual-runtime-tests) | VS2010 ARM64_Release | Passed (exit 0; the "large data tests" section is skipped by upstream default) |
++| `fuzzer.exe -T30s` | VS2010 ARM64_Release | Passed (1105 tests) |
++| `zstreamtest.exe -T30s` | build-arm64-vs Release | Passed (1124 tests) |
++| CLI round-trips: 2 inputs x 8 settings (`-1 -3 -9 -19`, `--ultra -22`, `--long=27 -19`, `-T0 -10`, `--fast=3`), SHA256 compared, plus pipe `-T0`, `--train`/`-D`, `--train-cover`, `-b` and `--ultra -b22` | VS2010 ARM64_Release | 21/21 passed |
++| Shared-link checks: `zstd.exe` loads `build-arm64\lib\zstd.dll`, `--version`, 10 round-trips | build-arm64 | 12/12 passed |
++
++The ctest `playTests` entry is not registered by CMake when `uname` is not on PATH. Instead, `playTests.sh` was run directly as shown above, the same way upstream CI runs it on Windows. Its message `line 1692: [: : integer expression expected` is a harmless upstream quirk: the variable `ZSTD_LIB_EXCLUDE_COMPRESSORS_DFAST_AND_UP` is unset.
++
++## Test Fixes Applied
++None. All tests passed unmodified.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt` (committed on `arm64-port`)
++- **Metadata**: `benchmarks/base_bench_win_arm.meta.json`
++- **Format**: txt (zstd `-b` console output)
++- **Executed on**: native ARM64 host (Snapdragon X Elite), MSVC 19.51, Release `/O2`, shared-linked `zstd.exe`
++
++Speeds are compression / decompression in MB/s.
++
++| Input | Level | Ratio | Speed (MB/s) |
++|---|---|---|---|
++| datagen 100 MB | 1 | x3.086 | 975.8 / 1254.3 |
++| datagen 100 MB | 3 | x3.354 | 550.4 / 932.0 |
++| datagen 100 MB | 19 | x4.427 | 3.32 / 708.1 |
++| lib_src.tar (3.3 MB) | 1 | x5.000 | 872.5 / 1775.0 |
++| lib_src.tar | 3 | x5.662 | 440.9 / 1721.6 |
++| lib_src.tar | 19 | x7.701 | 4.43 / 1993.1 |
++| lib_src.tar, `--ultra` | 22 | x7.709 | 3.24 / 1891.3 |
++| datagen, `-T0` | 1 | x3.086 | 2141.3 (compression) |
++
++`fullbench -i1` results: compress 332.3 MB/s, decompress 1273.1 MB/s.
++
++## NEON Optimizations
++Phase 7 was skipped because `WOS_SKIP_OPTIMIZE` was set. The existing upstream NEON paths are active on MSVC ARM64 through `ZSTD_ARCH_ARM_NEON`, which is defined for `_M_ARM64`. They cover the `zstd_internal.h` wildcopy and the `zstd_lazy.c` row-hash match finder. The AVX2 sequence-conversion kernels in `zstd_compress.c` use their scalar fallback on ARM64, so they remain candidates for a later optimizer run.
++
++## ARM64 vs x64 Performance Comparison
++No x64 reference was supplied, so a differential comparison does not apply.
++
++## Architecture Verification
++Every built binary was checked with `dumpbin /HEADERS` (HostARM64 dumpbin, MSVC 14.51). All 24 are `AA64 machine (ARM64)`.
++
++| Binary | Size (bytes) | Machine |
++|---|---|---|
++| build-arm64\lib\zstd.dll | 639488 | AA64 machine (ARM64) |
++| build-arm64\programs\zstd.exe | 168448 | AA64 machine (ARM64) |
++| build-arm64\tests\datagen.exe | 22016 | AA64 machine (ARM64) |
++| build-arm64\tests\fullbench.exe | 558592 | AA64 machine (ARM64) |
++| build-arm64\tests\fuzzer.exe | 728064 | AA64 machine (ARM64) |
++| build-arm64\tests\paramgrill.exe | 573952 | AA64 machine (ARM64) |
++| build-arm64\tests\zstreamtest.exe | 703488 | AA64 machine (ARM64) |
++| build-arm64-vs\lib\Release\zstd.dll | 641536 | AA64 machine (ARM64) |
++| build-arm64-vs\programs\Release\zstd.exe | 736768 | AA64 machine (ARM64) |
++| build-arm64-vs\tests\Release\{datagen,fullbench,fuzzer,paramgrill,zstreamtest}.exe | 22016 to 730112 | AA64 machine (ARM64) |
++| build\VS2010\bin\ARM64_Release\{zstd,datagen,fullbench,fuzzer}.exe, libzstd.dll | 158720 to 885248 | AA64 machine (ARM64) |
++| build\VS2010\bin\ARM64_Debug\{zstd,datagen,fullbench,fuzzer}.exe, libzstd.dll | 176128 to 2358272 | AA64 machine (ARM64) |
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native. There are no closed-source or x64-only dependencies.
++- **AppReady stages reached**: Assess ✓ | Build ✓ | Deploy: not applicable (library and CLI, no installer in the tree) | Optimize: skipped (`WOS_SKIP_OPTIMIZE`)
++- **WoA Ecosystem Dashboard status**:
++
++| Dependency | Version | Dashboard status | Citation |
++|---|---|---|---|
++| zlib (optional, OFF) | any | native | https://developer.arm.com/ecosystem-dashboard/windows |
++| liblzma (optional, OFF) | any | unknown (portable C, builds from source) | build/cmake/programs/CMakeLists.txt |
++| lz4 (optional, OFF) | any | unknown (portable C, builds from source) | build/cmake/programs/CMakeLists.txt |
++
++- **Emulation vs native**:
++
++| Component | Class | Notes |
++|---|---|---|
++| libzstd (zstd.dll / static) | Native ARM64 | NEON paths active |
++| zstd.exe CLI | Native ARM64 | multithreaded through native Windows threads |
++| test tools | Native ARM64 | |
++
++- **Blockers requiring Microsoft App Assure**: none. The port completes without escalation.
++
++## Limitations & Known Issues
++- [hard-external] The CI entries target `Visual Studio 17 2022` / `v143` on GitHub's `windows-11-arm` runner. They were not run, because the only toolset installed on the port host is VS 18 / `v145`, and this port must not push to a remote. The same project files and CMake flags build clean with `/warnaserror` and `CMAKE_COMPILE_WARNING_AS_ERROR=ON` using v145 on ARM64.
++- By design, ARM64EC builds keep the previous no-op prefetch, unchanged from upstream. The new `__prefetch` branch is limited to `_M_ARM64`.
++
++## Reverting / Coexistence
++The x64 and Win32 builds are unchanged. To build x64, switch back to `main` or use `/p:Platform=x64` / `-A x64`.
+-- 
+2.56.1
+

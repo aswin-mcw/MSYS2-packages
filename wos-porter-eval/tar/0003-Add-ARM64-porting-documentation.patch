@@ -1,0 +1,199 @@
+From eac8ed6f19254c4ad721e41e8b28c19e2265cf95 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:13:26 +0530
+Subject: [PATCH 3/3] Add ARM64 porting documentation
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ ARM64-PORT.md | 179 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 179 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..9c5b82e
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,179 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) build of GNU tar 1.35 (with the MSYS2 patches) for the
++MSYS2 `usr/bin` layer of Git for Windows, on branch `arm64-port`.
++
++The target is the MSYS2 runtime on ARM64 (`aarch64-pc-cygwin`, `msys-2.0.dll`), built
++with the `aarch64-pc-cygwin` GCC cross toolchain. It is not an MSVC target. MSVC is used
++only for `dumpbin`.
++
++## Summary of Changes
++### Build System
++- `build-aux/config.guess`: added an `aarch64:CYGWIN*:*:*` case that returns
++  `aarch64-pc-cygwin`. It sits next to the existing `i*`/`x86_64` Cygwin cases.
++  - This case is only reached when `uname -s` reports `CYGWIN_NT*`, which means a genuine
++    Cygwin runtime.
++  - The ARM64 MSYS2 runtime reports `MSYS_NT-10.0-26100 aarch64`. That already guesses
++    `aarch64-pc-msys` without this change, as verified with the ARM64 `sh`/`uname`.
++  - Cross builds pass `--host` and are not affected.
++  - The MSYS2 recipe runs `autoreconf -fi`, which replaces this file.
++### Source Code
++None. No x86 SIMD intrinsics and no inline assembly.
++- The `__asm__` hits are only `__REDIRECT`/`__ASMNAME` symbol renames.
++- The arch guards (`gnu/float.c`, `gnu/float.in.h`, `gnu/signal.in.h`, `gnu/unistd.in.h`)
++  already fall through to correct generic paths for `__aarch64__`.
++### CI/CD
++None. The repository has no CI configuration.
++### New Files
++- `ARM64-PORT.md` (this file)
++- `benchmarks/base_bench_win_arm.txt` (timing baseline)
++
++## Build Steps (ARM64)
++Prerequisites:
++- MSYS2 at `C:\msys64` with the `aarch64-pc-cygwin` cross toolchain (GCC 17.0.0 20260828,
++  binutils 2.47.50).
++- An ARM64 sysroot at `/usr/aarch64-pc-cygwin` that contains `msys-2.0.dll`, libiconv,
++  libintl and `sh`.
++- `crossarm64/config.site` from MSYS2-packages, so that configure runs its checks
++  natively instead of guessing.
++
++### Build
++```bash
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc '
++  mkdir -p /c/wos-eval/work/tar/build-arm64 && cd /c/wos-eval/work/tar/build-arm64
++  export PATH="$PATH:/usr/aarch64-pc-cygwin/usr/bin"
++  export CONFIG_SITE=/home/HCKTest/MSYS2-packages/crossarm64/config.site
++  export gl_cv_have_weak=no
++  CC=aarch64-pc-cygwin-gcc AR=aarch64-pc-cygwin-ar RANLIB=aarch64-pc-cygwin-ranlib \
++  CFLAGS="-O2 -pipe --param=ggc-min-heapsize=2000000 --param=ggc-min-expand=1000" \
++  CPPFLAGS="-I/usr/aarch64-pc-cygwin/usr/include" LDFLAGS="-L/usr/aarch64-pc-cygwin/usr/lib" \
++  ../configure --build=x86_64-pc-cygwin --host=aarch64-pc-cygwin --prefix=/usr \
++    --sbindir=/usr/bin --libexecdir=/usr/lib/tar --enable-backup-scripts --disable-gcc-warnings
++  make -j8'
++```
++- Build output: `build-arm64/src/tar.exe`, `build-arm64/rmt/rmt.exe`, and the backup
++  scripts in `build-arm64/scripts`.
++- The `ggc` params work around a garbage-collector hang in the cross `cc1`.
++- configure guessed only one check ("unlink of a parent directory"). It found iconv
++  (`-liconv`) and NLS (`-lintl`) in the sysroot.
++- `tar.exe` imports `msys-2.0.dll`, `msys-iconv-2.dll`, `msys-intl-8.dll` and `KERNEL32.dll`.
++
++### Run Tests
++The test helpers are built with the x64 make. The suite is then run by the ARM64 shell,
++so the ARM64 runtime owns every process.
++```bash
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc 'cd /c/wos-eval/work/tar/build-arm64 && export PATH="$PATH:/usr/aarch64-pc-cygwin/usr/bin" && make -C tests genfile.exe checkseekhole.exe ckmtime.exe atconfig atlocal'
++# inside the ARM64 bash (/c/msys64/usr/aarch64-pc-cygwin/usr/bin/bash.exe), with MSYSTEM=MSYS and
++# PATH=<build>/src:<build>/tests:<build>/rmt:/usr/aarch64-pc-cygwin/usr/bin
++cd /c/wos-eval/work/tar/build-arm64/tests && SHELL=/usr/bin/sh CONFIG_SHELL=/usr/bin/sh /usr/bin/sh ../../tests/testsuite -j8
++```
++- Set `SHELL`/`CONFIG_SHELL` inside the ARM64 shell. If you set them in Git Bash, Git Bash
++  rewrites the POSIX paths.
++- Expected result: 198 passed, 10 failed, 36 skipped. This matches the x64 MSYS2 tar
++  exactly; see Test Results.
++
++### Run Benchmarks
++tar has no benchmark suite. The timing baseline was produced with these ad-hoc scripts:
++- `C:\wos-eval\work\tar-scratch\bench\mktree.sh`: builds 2000 x 100 KiB files (196 MiB).
++- `C:\wos-eval\work\tar-scratch\bench\bench.sh`: runs `tar -cf`, `-xf`, `-czf` and
++  `-xzf` three times each.
++
++The result is `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon X Elite X1E80100, Windows 11 build 26100).
++- **Executed**: yes, under the ARM64 runtime. Inside the test shell, `uname -m` =
++  `aarch64` and `tar` = `build-arm64/src/tar`.
++- **Passed**: 198  **Failed**: 10  **Skipped**: 36 (244 tests; 208 run). Taken from
++  `build-arm64/tests/testsuite.log`.
++- **x64 reference**: MSYS2 `/usr/bin/tar.exe` 1.35, same recipe, full run.
++  - 198 / 10 / 36, with an identical list of failing tests.
++  - After normalising paths and timestamps, the failure output is identical.
++
++None of the 10 failures is ARM64-specific. All of them are Windows/MSYS environment
++behaviour:
++
++| # | Test | Cause (same on x64) |
++|---|---|---|
++| 35 | T-null2 | Windows filenames cannot contain `:` or `\` |
++| 89 | extrac06 | `noacl` permission emulation (got 755, expected 777) |
++| 106 | extrac23 | `noacl` permission emulation |
++| 96 | extrac13 | Default MSYS symlinks are copies; dangling links are impossible |
++| 97 | extrac14 | Symlinks are copies (passes with `MSYS=winsymlinks:nativestrict` on both) |
++| 103 | extrac20 | Symlinks are copies (passes with nativestrict on both) |
++| 108 | extrac25 | Dangling symlink cannot be created |
++| 117 | incr01 | Dangling symlink cannot be created |
++| 148 | link04 | Symlinks are copies (passes with nativestrict on both) |
++| 155 | time01 | Windows file times cannot go earlier than 1601 |
++
++The 36 skipped tests need features this host does not have: lzip, lzop, xattrs, ACLs,
++SELinux, capabilities, big files, or root.
++
++## Test Fixes Applied
++None. All tests behave the same as the x64 build, unmodified.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt`.
++- **Executed on**: the native ARM64 host. Other workloads were running at the same time,
++  so treat the numbers as indicative.
++
++| Operation (196 MiB tree) | ARM64 tar (native) | x64 tar (emulated) |
++|---|---|---|
++| `tar -cf` | 0.43-0.45 s | 0.43-0.51 s |
++| `tar -xf` | 0.61-0.64 s | 0.68-0.70 s |
++| `tar -czf` | 9.70-9.95 s | 6.21-6.49 s |
++| `tar -xzf` | 1.13-1.28 s | 0.90-1.06 s |
++
++Plain tar is at parity or slightly faster on ARM64. The whole gzip gap comes from the
++external ARM64 `gzip` binary: gzip alone took 9.94 s on ARM64 and 6.17 s on x64. tar
++itself does not cause it.
++
++## NEON Optimizations
++Phase 7 was skipped because `WOS_SKIP_OPTIMIZE` was set. tar also has no SIMD code or
++compute hot path; compression runs in external programs.
++
++## ARM64 vs x64 Performance Comparison
++No x64 benchmark reference file was supplied, so a differential comparison does not apply.
++The informal side-by-side timing is shown under Benchmark Results.
++
++## Architecture Verification
++All built binaries were verified with `dumpbin /HEADERS` from MSVC 14.51
++(HostARM64\ARM64):
++
++| Binary | Machine | Size (bytes) |
++|---|---|---|
++| build-arm64/src/tar.exe | AA64 machine (ARM64) | 608009 |
++| build-arm64/rmt/rmt.exe | AA64 machine (ARM64) | 82860 |
++| build-arm64/tests/genfile.exe | AA64 machine (ARM64) | 133069 |
++| build-arm64/tests/checkseekhole.exe | AA64 machine (ARM64) | 21743 |
++| build-arm64/tests/ckmtime.exe | AA64 machine (ARM64) | 23277 |
++
++The runtime dependencies in the sysroot are also AA64: `msys-2.0.dll`, `msys-iconv-2.dll`,
++`msys-intl-8.dll` and `sh.exe`.
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native (`aarch64-pc-cygwin` / MSYS2 runtime).
++- **AppReady stages reached**: Assess done, Build done, Deploy not applicable (packaged by
++  the MSYS2 recipe), Optimize skipped (WOS_SKIP_OPTIMIZE).
++- **Dependencies**:
++
++| Dependency | Status | Notes |
++|---|---|---|
++| msys2-runtime (`msys-2.0.dll`) | native ARM64 | aarch64 runtime build, AA64 |
++| libiconv | native ARM64 | sysroot `msys-iconv-2.dll`, AA64 |
++| libintl (gettext) | native ARM64 | sysroot `msys-intl-8.dll`, AA64 |
++| sh (bash) | native ARM64 | sysroot `sh.exe`, AA64 |
++
++- **Emulation**: none. All components run natively.
++- **App Assure blockers**: none.
++
++## Limitations & Known Issues
++None. All reachable limitations were resolved.
++
++The 10 failing tests are Windows/MSYS filesystem design facts (filename characters,
++symlink emulation, `noacl` permissions, pre-1601 timestamps). They are identical on x64,
++so they are not port defects.
++
++## Reverting / Coexistence
++The x64 build is unchanged. To build x64, use `main` with the normal MSYS2 recipe
++(`--build=x86_64-pc-msys`, no `--host`).
+-- 
+2.56.1
+

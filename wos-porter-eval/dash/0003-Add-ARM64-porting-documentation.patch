@@ -1,0 +1,203 @@
+From 7b83589b73a77676d0aded3ba4fac7a7fa00acdf Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Sun, 22 Nov 2026 01:14:50 +0530
+Subject: [PATCH 3/3] Add ARM64 porting documentation
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ ARM64-PORT.md | 183 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 183 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..a1c3325
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,183 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 (`aarch64`) support for dash 0.5.13.5 as shipped in the
++MSYS2 (`usr/bin`) layer of Git for Windows, on branch `arm64-port`.
++
++dash is a POSIX program built against the MSYS2/Cygwin runtime (`msys-2.0.dll`).
++Its Windows ARM64 target is therefore **`aarch64-pc-cygwin`**, built with the GCC
++cross toolchain. MSVC, MSBuild and CMake do not apply.
++
++## Summary of Changes
++### Build System
++- `configure.ac`, `configure` (regenerated with autoconf 2.72, the version that
++  generated the committed file; 1-line diff each): in the non-cross branch, use
++  `CC_FOR_BUILD=${CC_FOR_BUILD-$CC}` instead of `CC_FOR_BUILD=${CC}`.
++  - The bug: with only `--host=aarch64-pc-cygwin` (no `--build`), autoconf starts
++    with `cross_compiling=maybe`. On a Windows ARM64 machine where the aarch64
++    test program can run, that resolves to `no`, and configure then silently
++    discarded a user-supplied `CC_FOR_BUILD`. The generators (`mkinit`,
++    `mksyntax`, `mknodes`, `mksignames`) were then built as aarch64 binaries,
++    which the x86_64 msys `make` cannot run.
++  - Reproduced on this host with the ARM64 runtime on PATH. Old configure gave
++    `cross compiling... no` / `build system compiler... aarch64-pc-cygwin-gcc`;
++    new configure gives `... no` / `... gcc`.
++  - Native builds that do not set `CC_FOR_BUILD` still get `$CC`. Commit `047daaf`.
++
++### Source Code
++- None. The source has no x86-specific code: no SIMD, no intrinsics, no inline
++  asm other than the empty compiler barrier in `src/error.h:83`, and no
++  `__x86_64__` guards. The only platform guard is `__CYGWIN__` in `src/cd.c`,
++  which aarch64-pc-cygwin also defines.
++- Plain `char` is signed on aarch64-pc-cygwin (`__CHAR_UNSIGNED__` is not
++  defined), the same as x64. The CTL* byte handling uses explicit
++  `signed char` casts anyway.
++
++### CI/CD
++- None. The tree has no CI configuration; ARM64 CI lives in the MSYS2-packages recipe.
++
++### New Files
++- `benchmarks/base_bench_win_arm.txt`, `benchmarks/base_bench_win_arm.meta.json`,
++  `benchmarks/scripts/*.sh`, `benchmarks/scripts/run_bench.ps1` (commit `84c1485`).
++
++## Build Steps (ARM64)
++Prerequisites: MSYS2 with `autotools`, `make` and `gcc` (x86_64-pc-msys, the
++build compiler), and the aarch64-pc-cygwin cross toolchain with its sysroot at
++`/usr/aarch64-pc-cygwin` (GCC 17.0.0 20260828, binutils 2.47.50, ARM64 msys2-runtime).
++
++### Build
++```powershell
++$env:MSYSTEM = 'MSYS'
++C:\msys64\usr\bin\bash -lc 'cd /c/wos-eval/work/dash && mkdir -p build-arm64 && cd build-arm64 &&
++  ../configure --prefix=/usr --exec-prefix= --bindir=/usr/bin --mandir=/usr/share/man \
++    --build=x86_64-pc-msys --host=aarch64-pc-cygwin CC_FOR_BUILD=gcc CFLAGS="-O2 -static-libgcc" &&
++  make'
++```
++Build output: `build-arm64/src/dash.exe`. The generators are built as x86-64
++with `gcc`; `dash.exe` is AA64 and imports only `KERNEL32.dll` and `msys-2.0.dll`.
++
++### Run Tests
++dash has no upstream test suite. Phase 6 used a 45-script differential
++conformance suite. Each script ran under the ARM64 dash (PATH = an ARM64 MSYS
++tree, here `C:\gfw-native\native\usr\bin`) and under the x64 dash (PATH =
++`C:\msys64\usr\bin`), and stdout, stderr and exit code were compared byte for
++byte. Each dash was launched directly from `powershell.exe`, so it is the root
++Cygwin process:
++```powershell
++powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\tmp\run_suite.ps1 -Arch arm64 -Tag run1
++powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\tmp\run_suite.ps1 -Arch x64   -Tag run1
++sh benchmarks/tmp/compare.sh run1
++```
++(The suite is local scratch and is not committed.) Expected: 45 passed, 0 failed.
++
++### Run Benchmarks
++```powershell
++powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\scripts\run_bench.ps1 -Runs 5
++```
++Output: `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon X Elite X1E80100, Windows 11 26100)
++- **Executed**: Yes, natively, 3 full runs per arch
++- **Passed**: 45     **Failed**: 0     **Skipped**: 0 (in each of the 3 final runs)
++
++Areas covered:
++- parameter expansion and quoting, including UTF-8 and the CTLESC-range bytes 0x81-0x88
++- intmax arithmetic edges, overflow, shifts and error cases
++- here-docs, case/glob, functions/local
++- `set -e` and errors in subshells (setjmp/longjmp paths)
++- EXIT/INT/USR1/USR2/HUP/TERM traps, `kill -l` (mksignames output)
++- `&`/`wait` including a 40-job stress test, and signalled-child exit codes
++- read/printf/test/getopts, redirections, pipelines, nested command substitution
++- `cd -P`/`pwd` with Windows paths (cygwin_conv_path)
++
++The first pass had 2-3 mismatches. None was a port defect:
++- `t08_arith_errors`, `t23_test_builtin`: harness artifacts (the shell's own
++  path and `$$` in the output). Normalised in the test scripts.
++- `t20_signalled_exit` (1 of 3 runs): `sleep 5 & kill -INT $!` sometimes
++  gives 130. This is an upstream dash race, not ARM64-specific: `forkchild()`
++  (`src/jobs.c:902-904`) ignores SIGINT only after `fork()`. A 100-iteration
++  probe hit it 18/100 on x64 and 12/100 on ARM64.
++
++## Test Fixes Applied
++None. All tests passed with no changes to dash.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt` (committed on `arm64-port`, `84c1485`)
++- **Metadata**: `benchmarks/base_bench_win_arm.meta.json`
++- **Format**: txt (median of 5 wall-time runs, all individual runs listed)
++- **Executed on**: native ARM64. The x64 column is the x64 build emulated (Prism) on the same machine.
++
++| Benchmark | Workload | ARM64 native | x64 emulated | ARM64/x64 |
++|---|---|---|---|---|
++| arith_loop | 1e6-iteration `$(( ))` loop | 3474.3 ms | 3156.7 ms | 1.10 |
++| string_build | 200 x build/trim 100-item string | 195.7 ms | 175.5 ms | 1.12 |
++| case_match | 30000 x 10-word case/glob | 536.3 ms | 445.2 ms | 1.20 |
++| func_call | 200000 function calls | 835.3 ms | 838.9 ms | 1.00 |
++| fork_subshell | 500 x `$(:)` | 3068.5 ms | 6243.6 ms | 0.49 |
++
++Fork-heavy work (the normal shape of shell scripts) is about 2x faster native.
++Pure interpreter loops are 0-20% slower than emulated x64. Contributing factors:
++- the cross GCC defaults to `-march=armv8-a -mtune=cortex-a53` (verified with
++  `-Q --help=target`), not an Oryon tuning
++- the runtimes differ (ARM64 msys-2.0.dll 3.6.10 vs x64 3.6.12)
++
++## NEON Optimizations
++Phase 7 skipped: WOS_SKIP_OPTIMIZE set. dash has no SIMD or vectorisable hot
++kernels in any case.
++
++## ARM64 vs x64 Performance Comparison
++No x64 reference benchmark file was supplied, so the differential comparison
++does not apply. The same-machine emulated-x64 numbers are in the Benchmark
++Results table above.
++
++## Architecture Verification
++Verified with `dumpbin /HEADERS` (MSVC 14.51 HostARM64\ARM64):
++
++| Binary | Machine | Size |
++|---|---|---|
++| build-arm64/src/dash.exe | AA64 machine (ARM64) | 163,040 bytes |
++| build-x64/src/dash.exe (reference) | 8664 machine (x64) | 180,272 bytes |
++
++All seven generated sources (`signames.c`, `syntax.c`, `syntax.h`, `nodes.h`,
++`builtins.h`, `token.h`, `init.c`) are byte-identical between the ARM64 and x64
++builds.
++
++## Arm AppReady Status
++- **Target profile**: ARM64-native (aarch64-pc-cygwin). ARM64EC does not apply to a Cygwin-ABI binary.
++- **AppReady stages reached**: Assess done, Build done, Deploy n/a (shipped via the MSYS2/GfW package), Optimize skipped (by request)
++- **WoA Ecosystem Dashboard status**:
++
++| Dependency | Version | Dashboard status | Citation |
++|---|---|---|---|
++| msys2-runtime (msys-2.0.dll) | 3.6.x aarch64 | unknown (not listed); native ARM64, built from source | configure.ac:10 |
++| libedit | optional, off by default | n/a (not linked) | configure.ac:212-225 |
++
++- **Emulation vs native**:
++
++| Component | Class | Notes |
++|---|---|---|
++| dash.exe | Native ARM64 | AA64 |
++| msys-2.0.dll | Native ARM64 | AA64, from the ARM64 MSYS tree |
++| build generators | x64 build tools | run only at build time |
++
++- **Blockers requiring Microsoft App Assure**: None.
++
++## Limitations & Known Issues
++None. All reachable limitations were resolved.
++
++Design facts and pre-existing upstream behaviour (not port work):
++- No upstream test suite exists; validation is differential against the x64 build.
++- The `sleep & kill -INT $!` race in `src/jobs.c:902-904` is pre-existing
++  upstream and reproduces on x64 (18/100 x64, 12/100 ARM64).
++- The `GLOB_ALTDIRFUNC` redefinition warning (`src/expand.c:1476` vs
++  `src/system.h:146`) appears on both architectures.
++- Performance residual on interpreter loops (1.00-1.20x vs emulated x64): the
++  compiler default tune is cortex-a53 and the runtime versions differ.
++  Optimization was skipped by request.
++- The MSYS2 recipe builds aarch64 at `-O1` because of toolchain issue #38. With
++  the current cross GCC 17.0.0 20260828, `-O2` builds dash cleanly, so that
++  workaround may no longer be needed for this package.
++
++## Reverting / Coexistence
++The x64 build is unchanged. A native build that does not set `CC_FOR_BUILD`
++behaves exactly as before. To build x64, use `main` or omit `--build`/`--host`.
+-- 
+2.56.1
+

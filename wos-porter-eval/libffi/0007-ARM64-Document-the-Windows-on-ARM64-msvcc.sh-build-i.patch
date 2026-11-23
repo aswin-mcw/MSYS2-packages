@@ -1,0 +1,33 @@
+From 8265de291ad6e8aff0e7b4805328d4805a6371de Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:32:53 +0530
+Subject: [PATCH 07/12] ARM64: Document the Windows on ARM64 msvcc.sh build in
+ README
+
+Include CPPFLAGS="-DFFI_BUILDING_DLL", as for the x86/x64 msvcc.sh
+recipe; without it types.c fails with C2491 when building the DLL.
+---
+ README.md | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/README.md b/README.md
+index 797d0fd..654fa06 100644
+--- a/README.md
++++ b/README.md
+@@ -164,6 +164,13 @@ For 64-bit Windows builds, use ``CC="path/to/msvcc.sh -m64"`` and
+ ``CXX="path/to/msvcc.sh -m64"``.  You may also need to specify
+ ``--build`` appropriately.
+ 
++For Windows on ARM64 builds, run configure from an ARM64 Visual Studio
++developer environment (for example ``vcvarsall.bat arm64``) and pass
++``-marm64`` so msvcc.sh drives cl for ARM64 and armasm64 for the
++assembly sources:
++
++    path/to/configure --host=aarch64-w64-mingw32 CC="$(pwd)/msvcc.sh -marm64" CXX="$(pwd)/msvcc.sh -marm64" CCAS="$(pwd)/msvcc.sh -marm64" LD=link CPP="cl -nologo -EP" CXXCPP="cl -nologo -EP" CPPFLAGS="-DFFI_BUILDING_DLL"
++
+ It is also possible to build libffi on Windows platforms with the LLVM
+ project's clang-cl compiler, like below:
+ 
+-- 
+2.56.1
+

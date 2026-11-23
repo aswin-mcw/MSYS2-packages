@@ -1,0 +1,132 @@
+From c307b282dc976452cf22c72d77e98366e85533e3 Mon Sep 17 00:00:00 2001
+From: aswin-mcw <aswin.kalies@multicorewareinc.com>
+Date: Mon, 23 Nov 2026 01:50:10 +0530
+Subject: [PATCH 4/4] Add ARM64 porting documentation
+
+Signed-off-by: aswin-mcw <aswin.kalies@multicorewareinc.com>
+---
+ ARM64-PORT.md | 112 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 112 insertions(+)
+ create mode 100644 ARM64-PORT.md
+
+diff --git a/ARM64-PORT.md b/ARM64-PORT.md
+new file mode 100644
+index 0000000..612eb23
+--- /dev/null
++++ b/ARM64-PORT.md
+@@ -0,0 +1,112 @@
++# Windows ARM64 Port
++
++Native Windows ARM64 support for util-linux 2.40.2, the version in the MSYS2 (`usr/bin`) layer of Git for Windows, on branch `arm64-port`. The target is the MSYS/Cygwin POSIX layer: host triplet `aarch64-pc-cygwin`, linked against the ARM64 `msys-2.0.dll`. MSVC cannot build this code. The compiler is the `aarch64-pc-cygwin` cross GCC 17, and MSVC's `dumpbin` is used only to check the binaries.
++
++## Summary of Changes
++### Build System
++- `configure.ac`, `configure`: one line each, `LIBS="$LTLIBINTL"` instead of `LIBS="$LIBINTL"` (commit `03a6252`).
++  - In the cross build, gettext's lib-link macros resolve libintl to an absolute `.../libintl.dll.a`.
++  - When libtool links a shared library, it treats an absolute `*.a` argument as a static archive. With Cygwin's `file_magic` method it then drops that archive, so `libblkid.la` failed with an undefined `libintl_gettext`.
++  - `LTLIBINTL` (`-L<dir> -lintl`) is the libtool form of the same flags and is what `Makefile.am` already uses. Native builds are unchanged.
++  - This replaces the `lt_cv_deplibs_check_method=pass_all` override in the MSYS2 recipe. That override's comment ("libtool only recognises x86 import libraries") has the wrong cause: `func_win32_libid` already matches `pe-aarch64`.
++- `config/config.guess`: adds an `aarch64:CYGWIN*:*:*` case, so `configure` without `--build` works on a native ARM64 Cygwin host (commit `100ca63`). Upstream config.guess has had this case since 2023.
++### Source Code
++None. The only x86 code in the built sources is in `include/xxhash.h`, and it is fully guarded. util-linux defines `XXH_NO_XXH3`, so only the scalar XXH32/XXH64 code is compiled. With XXH3 enabled, the header would pick `XXH_NEON` on aarch64 GCC. The x86 code in `lscpu`, `setarch` and `audit-arch.h` is Linux-only and is not built on Cygwin.
++### CI/CD
++None (the release tree has no CI).
++### New Files
++- `benchmarks/base_bench_win_arm.txt`, `benchmarks/base_bench_win_arm.meta.json`: baseline benchmark results (commit `0b98b5f`).
++
++## Build Steps (ARM64)
++Prerequisites:
++- x86_64 MSYS2 at `C:\msys64` with the `aarch64-pc-cygwin` cross toolchain (binutils 2.47.50, GCC 17).
++- An ARM64 sysroot in `/usr/aarch64-pc-cygwin` containing msys2-runtime, gettext, libiconv, readline, ncurses, sqlite, libxcrypt and zlib. All of these were checked as `AA64`.
++- `crossarm64/config.site` from the MSYS2-packages aarch64 branch.
++
++### Build
++```bash
++MSYSTEM=MSYS /c/msys64/usr/bin/bash -lc '
++export CONFIG_SITE=/home/HCKTest/MSYS2-packages/crossarm64/config.site MSYSTEM=CYGWIN PATH="$PATH:/usr/aarch64-pc-cygwin/usr/bin"
++export OBJDUMP=aarch64-pc-cygwin-objdump NM=aarch64-pc-cygwin-nm AR=aarch64-pc-cygwin-ar RANLIB=aarch64-pc-cygwin-ranlib \
++       STRIP=aarch64-pc-cygwin-strip DLLTOOL=aarch64-pc-cygwin-dlltool CC=aarch64-pc-cygwin-gcc
++export CFLAGS="-O2 -pipe --param=ggc-min-heapsize=2000000 --param=ggc-min-expand=1000" CPPFLAGS="-D__USE_LINUX_IOCTL_DEFS"
++mkdir -p /c/wos-eval/work/util-linux/build-arm64 && cd /c/wos-eval/work/util-linux/build-arm64
++../configure --build=x86_64-pc-cygwin --host=aarch64-pc-cygwin <option list from the MSYS2 util-linux PKGBUILD build()> SOLIB_LDFLAGS=-no-undefined
++make -j8
++make DESTDIR=$PWD/dest install'
++```
++- The full command is in `build-arm64/build.sh`.
++- The `--param=ggc-*` flags work around a garbage-collector hang/ICE in the cross `cc1`.
++- Build output: `build-arm64/dest/usr/bin`, containing 50 `.exe` and 5 `.dll` files.
++
++### Run Tests
++- Cross-build the helpers with `make -C build-arm64 -j8 check-programs`.
++- From an ARM64 MSYS userland, run `tests/run.sh --builddir=<build-arm64> --parallel=8` with `PATH=<build-arm64>/.libs:/usr/bin` and `SHELL=/usr/bin/bash` (the ARM64 bash must not inherit an x64 `SHELL`).
++
++Expected: 84 OK, 10 failed, 2 known-fail, 217 skipped. Every failure also occurs on x86_64 (see below).
++
++### Run Benchmarks
++```bash
++bash util-linux-scratch/bench/gen-data.sh
++bash util-linux-scratch/bench/run-all.sh
++```
++The results are written to `benchmarks/base_bench_win_arm.txt`.
++
++## Test Results
++- **Build host**: native ARM64 (Snapdragon X Elite). The cross compiler runs under x64 emulation; the tests run natively.
++- **Executed**: yes, 313 test scripts.
++- **Results**:
++
++| Run | OK | Failed | Known-fail | Skipped | Timeout | Subtests OK/failed |
++|---|---|---|---|---|---|---|
++| ARM64 | 84 | 10 | 2 | 217 | 0 | 586 / 21 |
++| x86_64 build of the same tree | 84 | 10 | 2 | 217 | 0 | 586 / 21 |
++
++Every failure is the same on x86_64, with byte-identical diffs, so they all come from Cygwin/MSYS rather than the port:
++- `getopt/options` (7 subtests): Cygwin getopt's error message wording.
++- `col/multibyte`, `misc/mbsencode`: printability of UTF-8 bytes in the POSIX locale.
++- `hardlink/options`: `noacl` modes.
++- `rename/symlink`, `rename/subdir`: MSYS symlink emulation.
++- `script/*`: Cygwin pty.
++- `liblastlog2/dlopen`: the test expects a `.so`.
++- `liblastlog2/write_read_user`, `liblastlog2/y2038_ll2_read_all`: sqlite open.
++
++The skips are tests that need root (45) or tools that are Linux-only or disabled in configure.
++
++## Test Fixes Applied
++None. There were no ARM64-specific failures.
++
++## Benchmark Results
++- **Result file**: `benchmarks/base_bench_win_arm.txt`, with metadata in `.meta.json`.
++- **Executed on**: native ARM64. The x64 builds ran under Prism emulation. Outputs were identical across all three builds (md5).
++
++| Workload | ARM64 ms | x64 MSYS2 2.42.4 ms | x64 same tree ms | x64 MSYS2 / ARM64 |
++|---|---|---|---|---|
++| hexdump -C, 8 MiB | 4050 | 3098 | 3068 | 0.76 |
++| rev, 200k lines | 1783 | 1601 | 1369 | 0.90 |
++| column -t, 50k rows | 515 | 432 | 427 | 0.84 |
++| look x2000 | 33292 | 62856 | 57083 | 1.89 |
++| uuidgen -r x500 | 8736 | 15225 | 14244 | 1.74 |
++| getopt x500 | 8386 | 13893 | 14048 | 1.66 |
++
++## NEON Optimizations
++Phase 7 was skipped because `WOS_SKIP_OPTIMIZE` was set. The built code has no x86 SIMD paths to replace.
++
++## ARM64 vs x64 Performance Comparison
++No x64 benchmark reference was supplied, so the differential comparison does not apply. The baseline table above includes x64-under-emulation numbers for context.
++
++## Architecture Verification
++`dumpbin /HEADERS` (MSVC 14.51, HostARM64) reports `AA64 machine (ARM64)` for all 55 of the 55 installed binaries, including `getopt.exe`, `column.exe`, `msys-uuid-1.dll`, `msys-smartcols-1.dll`, `msys-blkid-1.dll` and `msys-fdisk-1.dll`. The 131 `test_*`/`sample-*` helper programs are AA64 as well.
++
++## Arm AppReady Status
++- **Target profile**: native ARM64 (aarch64-pc-cygwin).
++- **Stages reached**: Assess, Build, Deploy (the binaries ran natively), Optimize skipped.
++- **Dependencies**: msys2-runtime, gettext, libiconv, readline, ncurses, sqlite, libxcrypt, zlib and gcc-libs are all cross-built ARM64 MSYS2 packages and checked as AA64. The WoA dashboard does not track the MSYS ABI.
++- **App Assure escalation**: none needed.
++
++## Limitations & Known Issues
++- [hard-external] The 45 root-only tests can never run on Cygwin/MSYS. `ts_skip_nonroot` requires `$UID == 0`, and there is no uid 0 on Cygwin: even an elevated administrator shell reports `id -u` = 197608.
++- The performance gap on stream workloads is a residual, not a defect. On hexdump, rev and column, ARM64 is 10-24% slower than the x64 build of the same tree under emulation. Process-spawn-bound workloads are 1.7-1.9x faster. The stream gap has not been profiled. It is plausibly in the ARM64 `msys-2.0.dll` stdio path, which is outside this repository.
++
++## Reverting / Coexistence
++The x86_64 build is unchanged; the `LTLIBINTL` form is what native builds already resolve to. To build x86_64, configure without `--host`.
+-- 
+2.56.1
+
